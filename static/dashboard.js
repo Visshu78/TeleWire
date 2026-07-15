@@ -725,6 +725,7 @@ function openMessageDetail(index) {
 
 function closeModal() {
   document.getElementById("message-detail-modal").classList.remove("active");
+  closeModalPivotPane();
 }
 
 async function fetchEnrichmentForWallet(address, entityId) {
@@ -2379,28 +2380,37 @@ async function loadHeatmap() {
 
 
 // ══════════════════════════════════════════════════════════════════════════════
-// FEATURE 2: IOC PIVOT PANEL
+// FEATURE 2: IN-PLACE IOC PIVOT PANEL
 // ══════════════════════════════════════════════════════════════════════════════
 
-function closeIocPivot() {
-  const modal = document.getElementById("ioc-pivot-modal");
-  if (modal) modal.style.display = "none";
+function closeModalPivotPane() {
+  const modalContent = document.querySelector("#message-detail-modal .modal-content");
+  const modalLayout = document.querySelector("#message-detail-modal .modal-body-layout");
+  const pivotSidebar = document.getElementById("modal-pivot-sidebar");
+
+  if (modalContent) modalContent.classList.remove("pivot-wide");
+  if (modalLayout) modalLayout.classList.remove("pivot-active");
+  if (pivotSidebar) pivotSidebar.style.display = "none";
 }
 
 async function showIocPivot(iocType, iocValue) {
-  const modal    = document.getElementById("ioc-pivot-modal");
-  const subtitle = document.getElementById("ioc-pivot-subtitle");
-  const loading  = document.getElementById("ioc-pivot-loading");
-  const tbody    = document.getElementById("ioc-pivot-body");
-  if (!modal) return;
+  const modalContent = document.querySelector("#message-detail-modal .modal-content");
+  const modalLayout = document.querySelector("#message-detail-modal .modal-body-layout");
+  const pivotSidebar = document.getElementById("modal-pivot-sidebar");
+  const subtitle = document.getElementById("modal-pivot-subtitle");
+  const loading = document.getElementById("modal-pivot-loading");
+  const listDiv = document.getElementById("modal-pivot-list");
 
-  // Close the message detail modal first
-  closeModal();
+  if (!pivotSidebar) return;
 
-  subtitle.textContent = `Pivoting on: ${iocType} = "${iocValue}"`;
-  tbody.innerHTML = "";
+  // Slide open the side panel
+  if (modalContent) modalContent.classList.add("pivot-wide");
+  if (modalLayout) modalLayout.classList.add("pivot-active");
+  pivotSidebar.style.display = "block";
+
+  subtitle.textContent = `${iocType.replace("crypto_", "").toUpperCase()}: "${iocValue}"`;
+  listDiv.innerHTML = "";
   loading.style.display = "block";
-  modal.style.display = "flex";
 
   try {
     const params = new URLSearchParams({ type: iocType, value: iocValue });
@@ -2411,50 +2421,48 @@ async function showIocPivot(iocType, iocValue) {
     window.currentPivotMessages = rows;
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="loading-cell">No messages found for this IOC.</td></tr>`;
+      listDiv.innerHTML = `<div class="muted" style="font-size:12px; text-align:center; padding:20px 0;">No matching messages found for this IOC.</div>`;
       return;
     }
 
-    tbody.innerHTML = rows.map((row, index) => {
-      const ts   = row.timestamp ? row.timestamp.slice(0, 16).replace("T", " ") : "—";
+    listDiv.innerHTML = rows.map((row, index) => {
+      const ts = row.timestamp ? row.timestamp.slice(11, 16) : "—";
       const risk = row.risk_score || 0;
       const riskCls = risk >= 70 ? "risk-high" : risk >= 40 ? "risk-medium" : "risk-low";
-      const txt  = (row.text || "").slice(0, 120);
-      const kw   = row.matched_keyword ? `<span class="tag-kw">${e(row.matched_keyword)}</span>` : "—";
-      const cat  = row.threat_category || "—";
-      return `<tr class="clickable-row" onclick="openPivotMessageDetail(${index})" title="Click to view full message details">
-        <td style="white-space:nowrap;">${ts}</td>
-        <td>${e(row.group_name || "")}</td>
-        <td>${e(row.sender_name || "")}</td>
-        <td><span class="entity-badge">${e(cat)}</span></td>
-        <td><span class="${riskCls}" style="font-weight:700;">${risk.toFixed(0)}</span></td>
-        <td>${kw}</td>
-        <td style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e(row.text || "")}">${e(txt)}${txt.length < (row.text||"").length ? "…" : ""}</td>
-      </tr>`;
+      const txt = (row.text || "").slice(0, 110);
+      const kw = row.matched_keyword ? `<span class="tag-kw" style="font-size:9px; padding:1px 5px;">${e(row.matched_keyword)}</span>` : "";
+      const cat = row.threat_category ? `<span class="entity-badge" style="font-size:9px; padding:1px 5px;">${e(row.threat_category)}</span>` : "";
+      
+      return `
+        <div class="pivot-message-card" onclick="openPivotMessageDetailInPlace(${index})" title="Click to view details in-place">
+          <div class="pivot-card-header">
+            <span class="pivot-card-group">${e(row.group_name || "Unknown")}</span>
+            <span class="pivot-card-time">${ts} &nbsp; <span class="${riskCls}" style="font-weight:700;">${risk.toFixed(0)}</span></span>
+          </div>
+          <div class="pivot-card-body">${e(txt)}${txt.length < (row.text||"").length ? "…" : ""}</div>
+          <div class="pivot-card-meta">
+            ${kw}
+            ${cat}
+          </div>
+        </div>
+      `;
     }).join("");
   } catch (err) {
     loading.style.display = "none";
-    tbody.innerHTML = `<tr><td colspan="7" class="loading-cell" style="color:#ef4444;">Error fetching pivot data.</td></tr>`;
+    listDiv.innerHTML = `<div class="muted" style="font-size:12px; color:#ef4444; text-align:center; padding:20px 0;">Error loading pivot data.</div>`;
   }
 }
 
-function openPivotMessageDetail(index) {
+function openPivotMessageDetailInPlace(index) {
   const m = window.currentPivotMessages[index];
   if (!m) return;
   
-  // Close the pivot modal
-  closeIocPivot();
-  
   // Pivot message has full fields. We temporarily override window.currentMessages
   // so openMessageDetail can extract all attributes correctly.
+  // Note: We DO NOT close the pivot sidebar pane, allowing the analyst to browse items in place!
   window.currentMessages = [m];
   openMessageDetail(0);
 }
 
-// Close IOC pivot on background click
-document.addEventListener("DOMContentLoaded", () => {
-  const m = document.getElementById("ioc-pivot-modal");
-  if (m) m.addEventListener("click", ev => { if (ev.target === m) closeIocPivot(); });
-});
 
 

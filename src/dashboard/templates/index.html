@@ -589,6 +589,18 @@
           </div>
         </div>
       </div>
+      <!-- In-place Pivot Sidebar Panel -->
+      <div id="modal-pivot-sidebar" class="modal-sidebar-info modal-pivot-pane" style="display: none; border-left: 1px solid rgba(255,255,255,0.08); padding-left: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h4 style="margin: 0; color: #a78bfa; font-size: 14px; text-transform: uppercase;">Pivot Results</h4>
+          <button class="btn btn-ghost btn-sm" onclick="closeModalPivotPane()" style="padding: 2px 6px; font-size: 11px;">✕</button>
+        </div>
+        <p id="modal-pivot-subtitle" class="muted" style="font-size: 11px; margin-top: -6px; margin-bottom: 10px;"></p>
+        <div id="modal-pivot-loading" class="loading-cell" style="display: none; font-size: 12px;">Searching across all messages…</div>
+        <div id="modal-pivot-list" class="entities-list" style="max-height: 60vh; gap: 8px;">
+          <!-- Pivot card matches will render here -->
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -638,29 +650,7 @@
 
 <div class="toast-container" id="toast-container"></div>
 
-<!-- IOC Pivot Modal -->
-<div id="ioc-pivot-modal" class="modal-wrap" style="display:none;">
-  <div class="modal-content glass-card" style="max-width: 860px; width: 95%; padding: 28px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
-      <div>
-        <h3 style="margin:0; color:#a78bfa;">🔍 IOC Pivot</h3>
-        <p id="ioc-pivot-subtitle" class="muted" style="margin:4px 0 0; font-size:12px;"></p>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="closeIocPivot()">✕</button>
-    </div>
-    <div id="ioc-pivot-loading" class="loading-cell" style="display:none;">Searching across all messages…</div>
-    <div class="table-wrap" style="max-height: 480px; overflow-y:auto;">
-      <table class="data-table" id="ioc-pivot-table">
-        <thead><tr>
-          <th>Time</th><th>Group</th><th>Sender</th><th>Category</th><th>Risk</th><th>Keyword</th><th>Message</th>
-        </tr></thead>
-        <tbody id="ioc-pivot-body">
-          <tr><td colspan="7" class="loading-cell">No results yet.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
+
 
 
 <script src="/static/dashboard.js"></script>
