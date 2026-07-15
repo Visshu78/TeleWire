@@ -1376,7 +1376,10 @@ tr.row-cross td { background: rgba(120, 70, 0, 0.18); }
 .ioc-chip-icon {
   font-size: 10px;
   opacity: 0.7;
+}.clickable-row {
+  cursor: pointer;
+  transition: background-color var(--transition);
 }
-
-
-
+.clickable-row:hover {
+  background-color: rgba(255,255,255,0.04) !important;
+}

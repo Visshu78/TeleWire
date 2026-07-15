@@ -597,7 +597,7 @@ function openMessageDetail(index) {
                             || ent.entity_type === t);
 
       if (isPivotable) {
-        htmlText += `<span class="highlight-entity clickable-hl ${hlClass}" onclick="showIocPivot('${e(ent.entity_type)}', '${e(val).replace(/'/g,"\\'")}')" title="Click to pivot search: ${ent.entity_type}">${e(val)}${badge}</span>`;
+        htmlText += `<span class="highlight-entity clickable-hl ${hlClass}" ondblclick="showIocPivot('${e(ent.entity_type)}', '${e(val).replace(/'/g,"\\'")}')" title="Double-click to pivot search: ${ent.entity_type}">${e(val)}${badge}</span>`;
       } else {
         htmlText += `<span class="highlight-entity ${hlClass}" title="${ent.entity_type}">${e(val)}${badge}</span>`;
       }
@@ -2406,20 +2406,23 @@ async function showIocPivot(iocType, iocValue) {
     const params = new URLSearchParams({ type: iocType, value: iocValue });
     const rows = await fetch(`/api/ioc/pivot?${params}`).then(r => r.json());
     loading.style.display = "none";
+    
+    // Store pivot results globally
+    window.currentPivotMessages = rows;
 
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="7" class="loading-cell">No messages found for this IOC.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = rows.map(row => {
+    tbody.innerHTML = rows.map((row, index) => {
       const ts   = row.timestamp ? row.timestamp.slice(0, 16).replace("T", " ") : "—";
       const risk = row.risk_score || 0;
       const riskCls = risk >= 70 ? "risk-high" : risk >= 40 ? "risk-medium" : "risk-low";
       const txt  = (row.text || "").slice(0, 120);
       const kw   = row.matched_keyword ? `<span class="tag-kw">${e(row.matched_keyword)}</span>` : "—";
       const cat  = row.threat_category || "—";
-      return `<tr>
+      return `<tr class="clickable-row" onclick="openPivotMessageDetail(${index})" title="Click to view full message details">
         <td style="white-space:nowrap;">${ts}</td>
         <td>${e(row.group_name || "")}</td>
         <td>${e(row.sender_name || "")}</td>
@@ -2433,6 +2436,19 @@ async function showIocPivot(iocType, iocValue) {
     loading.style.display = "none";
     tbody.innerHTML = `<tr><td colspan="7" class="loading-cell" style="color:#ef4444;">Error fetching pivot data.</td></tr>`;
   }
+}
+
+function openPivotMessageDetail(index) {
+  const m = window.currentPivotMessages[index];
+  if (!m) return;
+  
+  // Close the pivot modal
+  closeIocPivot();
+  
+  // Pivot message has full fields. We temporarily override window.currentMessages
+  // so openMessageDetail can extract all attributes correctly.
+  window.currentMessages = [m];
+  openMessageDetail(0);
 }
 
 // Close IOC pivot on background click
