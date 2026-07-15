@@ -591,7 +591,16 @@ function openMessageDetail(index) {
       const hlClass = isSanctioned ? "hl-sanctioned" : `hl-${ent.entity_type}`;
       const badge = isSanctioned ? ' <span class="sanctioned-badge">⚠️ OFAC Sanctioned</span>' : "";
       
-      htmlText += `<span class="highlight-entity ${hlClass}" title="${ent.entity_type}">${e(val)}${badge}</span>`;
+      const pivotable = ["phone", "email", "url", "upi_id", "telegram_handle",
+                         "crypto_btc", "crypto_eth", "crypto_trx", "crypto_usdt"];
+      const isPivotable = pivotable.some(t => ent.entity_type.includes(t.split("_")[1] || t) 
+                            || ent.entity_type === t);
+
+      if (isPivotable) {
+        htmlText += `<span class="highlight-entity clickable-hl ${hlClass}" onclick="showIocPivot('${e(ent.entity_type)}', '${e(val).replace(/'/g,"\\'")}')" title="Click to pivot search: ${ent.entity_type}">${e(val)}${badge}</span>`;
+      } else {
+        htmlText += `<span class="highlight-entity ${hlClass}" title="${ent.entity_type}">${e(val)}${badge}</span>`;
+      }
       lastIdx = pos + val.length;
     }
   });

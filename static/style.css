@@ -636,7 +636,15 @@ tr.row-cross td { background: rgba(120, 70, 0, 0.18); }
   font-size: 13px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.1);
   display: inline-block;
+  cursor: default;
+}
+.highlight-entity.clickable-hl {
   cursor: pointer;
+  transition: filter var(--transition), border-color var(--transition);
+}
+.highlight-entity.clickable-hl:hover {
+  filter: brightness(1.2);
+  text-decoration: underline;
 }
 .hl-crypto_btc, .hl-crypto_eth, .hl-crypto_tron, .hl-crypto_ton {
   background: rgba(6, 182, 212, 0.2);
