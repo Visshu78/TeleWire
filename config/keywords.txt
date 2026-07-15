@@ -1,0 +1,16 @@
+# One keyword / phrase per line. Case-insensitive.
+# These are starter keywords — add more via the Streamlit keyword manager
+# or directly through the dashboard.
+crypto
+bitcoin
+ethereum
+scam
+fraud
+investment
+pump
+signal
+airdrop
+token
+wallet
+seed phrase
+private key

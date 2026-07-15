@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+ENV/
+env/
+
+# Environment and configuration
+.env
+
+# Telethon session files
+*.session
+*.session-journal
+
+# Database & local backups
+data/*.db
+data/*.db-*
+data/*.session
+data/*.session-journal
+data/backup/
+data/models/
+data/media/
+data/sanction_lists/
+data/faiss_index.bin
+data/faiss_mapping.json

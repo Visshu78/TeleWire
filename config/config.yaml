@@ -1,0 +1,26 @@
+# ─────────────────────────────────────────────
+#  Telegram Intelligence Pipeline — Config
+# ─────────────────────────────────────────────
+
+# Fuzzy matching threshold (0–100). 85 = strict.
+fuzzy_threshold: 85
+
+# SQLite database path (relative to project root)
+db_path: data/telegram_intel.db
+
+# Raw JSON backup
+backup_enabled: true
+backup_dir: data/backup
+
+# Flask dashboard
+dashboard_port: 5000
+dashboard_host: "0.0.0.0"
+
+# Logging: DEBUG | INFO | WARNING | ERROR
+log_level: INFO
+
+# Telethon session file name (no extension)
+session_name: telegram_session
+
+# How often (seconds) the keyword matcher reloads from DB
+keyword_reload_interval: 60
