@@ -162,7 +162,13 @@
         <span id="heatmap-filter-text" style="color:var(--text-primary);"></span>
         <button class="btn btn-sm btn-ghost" onclick="clearHeatmapFilter()" style="padding:2px 8px; font-size:11px;">✕ Clear</button>
       </div>
+      <div class="filter-row" id="query-filter-indicator" style="display:none; margin-top:10px; border-top:1px dashed rgba(255,255,255,0.1); padding-top:10px; font-size:12px; align-items:center; gap:8px;">
+        <span style="color:#a78bfa; font-weight:600;">🔍 Pivot Search:</span>
+        <span id="query-filter-text" style="color:var(--text-primary); font-family:monospace; background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px;"></span>
+        <button class="btn btn-sm btn-ghost" onclick="clearQueryFilter()" style="padding:2px 8px; font-size:11px;">✕ Clear Pivot</button>
+      </div>
     </div>
+
 
     <div class="table-wrap glass-card">
       <table class="data-table" id="messages-table">

@@ -576,6 +576,7 @@ class DatabaseHandler:
         fetched_by: Optional[str] = None,
         request_dow: Optional[int] = None,
         request_hour: Optional[int] = None,
+        q: Optional[str] = None,
     ) -> dict:
         """Paginated + filtered message list. Accepts full datetime strings."""
         if datetime_from and datetime_to and datetime_from > datetime_to:
@@ -614,10 +615,18 @@ class DatabaseHandler:
         if fetched_by:
             clauses.append("fetched_by = ?")
             params.append(fetched_by)
+        if q:
+            clauses.append("""
+                (text LIKE ? OR ocr_text LIKE ? OR sender_name LIKE ? OR sender_id = ? OR 
+                 id IN (SELECT message_id FROM message_entities me JOIN entities e ON me.entity_id = e.id WHERE e.entity_value = ?))
+            """)
+            q_like = f"%{q.strip()}%"
+            params.extend([q_like, q_like, q_like, q.strip(), q.strip()])
         if request_dow is not None:
             # Map client DOW (0=Mon...6=Sun) back to SQLite %w (0=Sun...6=Sat)
             sqlite_dow = (int(request_dow) + 1) % 7
             clauses.append("CAST(strftime('%w', timestamp) AS INTEGER) = ?")
+
             params.append(sqlite_dow)
         if request_hour is not None:
             clauses.append("CAST(strftime('%H', timestamp) AS INTEGER) = ?")
@@ -1156,6 +1165,114 @@ class DatabaseHandler:
         except Exception as exc:
             logger.error("get_entity_relationships failed: %s", exc)
             return []
+
+    def get_actor_node_details(self, actor_key: str) -> dict:
+        """
+        Fetch summary metrics and linked indicators for a visual node actor.
+        """
+        actor_key = actor_key.strip()
+        
+        sql_metrics = """
+            SELECT COUNT(*) as msg_count, MIN(timestamp) as first_seen, MAX(timestamp) as last_seen
+            FROM messages
+            WHERE sender_id = ? OR sender_name = ?
+        """
+        
+        sql_groups = """
+            SELECT DISTINCT group_id, group_name
+            FROM messages
+            WHERE (sender_id = ? OR sender_name = ?) AND group_name IS NOT NULL
+            LIMIT 8
+        """
+        
+        sql_entities = """
+            SELECT DISTINCT e.entity_type, e.entity_value
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE m.sender_id = ? OR m.sender_name = ?
+            LIMIT 12
+        """
+        
+        details = {
+            "msg_count": 0,
+            "first_seen": None,
+            "last_seen": None,
+            "groups": [],
+            "iocs": []
+        }
+        
+        try:
+            with get_db(self.db_path) as conn:
+                m_row = conn.execute(sql_metrics, (actor_key, actor_key)).fetchone()
+                if m_row and m_row["msg_count"] > 0:
+                    details["msg_count"] = m_row["msg_count"]
+                    details["first_seen"] = m_row["first_seen"]
+                    details["last_seen"] = m_row["last_seen"]
+                    
+                g_rows = conn.execute(sql_groups, (actor_key, actor_key)).fetchall()
+                details["groups"] = [dict(r) for r in g_rows]
+                
+                e_rows = conn.execute(sql_entities, (actor_key, actor_key)).fetchall()
+                details["iocs"] = [dict(r) for r in e_rows]
+        except Exception as exc:
+            logger.error("get_actor_node_details failed for %s: %s", actor_key, exc)
+            
+        return details
+
+    def get_entity_node_details(self, entity_id: int) -> dict:
+        """
+        Fetch summary metrics and linked actors/groups for a visual entity node.
+        """
+        sql_metrics = """
+            SELECT COUNT(*) as msg_count, MIN(m.timestamp) as first_seen, MAX(m.timestamp) as last_seen
+            FROM message_entities me
+            JOIN messages m ON me.message_id = m.id
+            WHERE me.entity_id = ?
+        """
+        
+        sql_actors = """
+            SELECT DISTINCT m.sender_name, m.sender_id
+            FROM message_entities me
+            JOIN messages m ON me.message_id = m.id
+            WHERE me.entity_id = ? AND m.sender_name IS NOT NULL
+            LIMIT 10
+        """
+        
+        sql_groups = """
+            SELECT DISTINCT m.group_id, m.group_name
+            FROM message_entities me
+            JOIN messages m ON me.message_id = m.id
+            WHERE me.entity_id = ? AND m.group_name IS NOT NULL
+            LIMIT 8
+        """
+        
+        details = {
+            "msg_count": 0,
+            "first_seen": None,
+            "last_seen": None,
+            "actors": [],
+            "groups": []
+        }
+        
+        try:
+            with get_db(self.db_path) as conn:
+                m_row = conn.execute(sql_metrics, (entity_id,)).fetchone()
+                if m_row and m_row["msg_count"] > 0:
+                    details["msg_count"] = m_row["msg_count"]
+                    details["first_seen"] = m_row["first_seen"]
+                    details["last_seen"] = m_row["last_seen"]
+                    
+                a_rows = conn.execute(sql_actors, (entity_id,)).fetchall()
+                details["actors"] = [dict(r) for r in a_rows]
+                
+                g_rows = conn.execute(sql_groups, (entity_id,)).fetchall()
+                details["groups"] = [dict(r) for r in g_rows]
+        except Exception as exc:
+            logger.error("get_entity_node_details failed for entity %d: %s", entity_id, exc)
+            
+        return details
+
 
 
     def get_wallet_enrichment(self, entity_value: str) -> dict | None:

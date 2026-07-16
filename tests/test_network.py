@@ -118,13 +118,9 @@ class TestNetworkIntelligence(unittest.TestCase):
         self.assertEqual(self.db.get_setting("non_existent", "default"), "default")
 
     def test_entity_connection_graph(self):
-        # Insert entity
-        self.db.save_entities_batch([("crypto_btc", "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")])
-        ent = self.db.get_entity_by_value("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
-        self.assertIsNotNone(ent)
-        
-        # Link entity to message 1
-        self.db.save_message_entities(1, [ent])
+        # Link entity to message 1 using standard save_message_entities method
+        entities_list = [{"type": "crypto_btc", "value": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "position": 0}]
+        self.db.save_message_entities(1, entities_list, "2026-07-03T10:15:30+00:00")
         
         analyzer = NetworkAnalyzer(self.db)
         res = analyzer.get_entity_connection_graph()
@@ -139,6 +135,7 @@ class TestNetworkIntelligence(unittest.TestCase):
         self.assertIn("group", node_types)
         self.assertIn("entity", node_types)
         self.assertGreater(len(edges), 0)
+
 
 
 if __name__ == "__main__":

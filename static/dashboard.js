@@ -492,9 +492,21 @@ async function loadMessages(page = 1) {
   if (account)  url += `&fetched_by=${encodeURIComponent(account)}`;
   if (window.filterHeatmapDow !== undefined && window.filterHeatmapDow !== null)   url += `&dow=${window.filterHeatmapDow}`;
   if (window.filterHeatmapHour !== undefined && window.filterHeatmapHour !== null) url += `&hour=${window.filterHeatmapHour}`;
+  if (window.filterQuery) url += `&q=${encodeURIComponent(window.filterQuery)}`;
 
+  const qi = document.getElementById("query-filter-indicator");
+  const qt = document.getElementById("query-filter-text");
+  if (qi && qt) {
+    if (window.filterQuery) {
+      qt.textContent = window.filterQuery;
+      qi.style.display = "flex";
+    } else {
+      qi.style.display = "none";
+    }
+  }
 
   try {
+
     const data = await fetch(url).then(r => r.json());
     renderMessagesTable(data.messages);
     totalMessages = data.total;
@@ -825,8 +837,21 @@ function clearFilters() {
   });
   document.getElementById("filter-matched-only").checked = false;
   clearHeatmapFilter(false);
+  window.filterQuery = null;
   loadMessages(1);
 }
+
+function pivotToMessagesSearch(query) {
+  window.filterQuery = query;
+  showSection("messages");
+  loadMessages(1);
+}
+
+function clearQueryFilter() {
+  window.filterQuery = null;
+  loadMessages(1);
+}
+
 
 
 // ── Time Range ────────────────────────────────────────────────────────────────
@@ -1290,6 +1315,7 @@ function displayNodeDetails(data) {
   const panel = document.getElementById("network-node-details");
   
   if (data.type === 'actor') {
+    const rawKey = data.id.substring(6);
     panel.innerHTML = `
       <div class="metric-row">
         <span class="metric-label">Actor Name</span>
@@ -1300,23 +1326,134 @@ function displayNodeDetails(data) {
         <span class="metric-value">Threat Actor / Sender</span>
       </div>
       <div class="metric-row">
-        <span class="metric-label">Unique ID</span>
-        <span class="metric-value" style="font-family: monospace;">${e(data.id.substring(6))}</span>
+        <span class="metric-label">Unique ID / Name</span>
+        <span class="metric-value" style="font-family: monospace;">${e(rawKey)}</span>
+      </div>
+      <div style="margin-top: 15px; text-align: center; color: #94a3b8;">
+        <span class="spinner" style="font-size: 11px;">⏳ Loading node details...</span>
       </div>
     `;
     loadCadenceChart();
+    
+    fetch(`/api/network/node-details?id=${encodeURIComponent(data.id)}&type=actor`)
+      .then(r => r.json())
+      .then(details => {
+        const groupsHtml = details.groups && details.groups.length > 0
+          ? details.groups.map(g => `<span class="tag-chip" style="background:rgba(6,182,212,0.1);color:#22d3ee;font-size:10px;padding:2px 6px;border-radius:4px;margin-right:4px;margin-top:4px;display:inline-block;">${e(g.group_name)}</span>`).join("")
+          : `<span class="muted">None</span>`;
+          
+        const iocsHtml = details.iocs && details.iocs.length > 0
+          ? details.iocs.map(ent => `<span class="tag-chip" style="background:rgba(251,191,36,0.1);color:#fbbf24;font-size:10px;padding:2px 6px;border-radius:4px;margin-right:4px;margin-top:4px;display:inline-block;cursor:pointer;font-family:monospace;" onclick="navigator.clipboard.writeText('${e(ent.entity_value)}'); showToast('Copied to clipboard!', 'success');" title="Click to copy">${e(ent.entity_value)} (${e(ent.entity_type.toUpperCase().replace("CRYPTO_",""))})</span>`).join("")
+          : `<span class="muted">None</span>`;
+
+        panel.innerHTML = `
+          <div class="metric-row">
+            <span class="metric-label">Actor Name</span>
+            <span class="metric-value" style="font-family: inherit;">${e(data.label)}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Type</span>
+            <span class="metric-value">Threat Actor / Sender</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Unique ID / Name</span>
+            <span class="metric-value" style="font-family: monospace;">${e(rawKey)}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Messages Posted</span>
+            <span class="metric-value" style="font-weight:bold;color:#a78bfa;">${details.msg_count}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">First Seen</span>
+            <span class="metric-value" style="font-size:11px;">${details.first_seen ? fmtTs(details.first_seen) : '—'}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Last Seen</span>
+            <span class="metric-value" style="font-size:11px;">${details.last_seen ? fmtTs(details.last_seen) : '—'}</span>
+          </div>
+          
+          <div style="margin-top: 12px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
+            <h4 style="margin:0 0 4px 0;font-size:11px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.5px;">Active In Groups</h4>
+            <div style="display:flex;flex-wrap:wrap;">${groupsHtml}</div>
+          </div>
+          
+          <div style="margin-top: 12px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
+            <h4 style="margin:0 0 4px 0;font-size:11px;color:#fbbf24;text-transform:uppercase;letter-spacing:0.5px;">Posted IOCs (Click to Copy)</h4>
+            <div style="display:flex;flex-wrap:wrap;">${iocsHtml}</div>
+          </div>
+          
+          <button class="btn btn-primary btn-sm" style="width:100%;margin-top:15px;justify-content:center;" onclick="pivotToMessagesSearch('${e(rawKey)}')">
+            🔍 Pivot to Messages
+          </button>
+        `;
+      });
+      
   } else if (data.type === 'entity') {
+    const rawVal = data.label;
     panel.innerHTML = `
       <div class="metric-row">
         <span class="metric-label">IOC Value</span>
-        <span class="metric-value" style="font-family: monospace; word-break: break-all;">${e(data.label)}</span>
+        <span class="metric-value" style="font-family: monospace; word-break: break-all;">${e(rawVal)}</span>
       </div>
       <div class="metric-row">
         <span class="metric-label">IOC Type</span>
         <span class="metric-value">${e(data.entity_type.toUpperCase().replace("CRYPTO_", ""))}</span>
       </div>
+      <div style="margin-top: 15px; text-align: center; color: #94a3b8;">
+        <span class="spinner" style="font-size: 11px;">⏳ Loading node details...</span>
+      </div>
     `;
     loadCadenceChart();
+    
+    fetch(`/api/network/node-details?id=${encodeURIComponent(data.id)}&type=entity`)
+      .then(r => r.json())
+      .then(details => {
+        const actorsHtml = details.actors && details.actors.length > 0
+          ? details.actors.map(a => `<span class="tag-chip" style="background:rgba(139,92,246,0.1);color:#a78bfa;font-size:10px;padding:2px 6px;border-radius:4px;margin-right:4px;margin-top:4px;display:inline-block;">${e(a.sender_name)}</span>`).join("")
+          : `<span class="muted">None</span>`;
+          
+        const groupsHtml = details.groups && details.groups.length > 0
+          ? details.groups.map(g => `<span class="tag-chip" style="background:rgba(6,182,212,0.1);color:#22d3ee;font-size:10px;padding:2px 6px;border-radius:4px;margin-right:4px;margin-top:4px;display:inline-block;">${e(g.group_name)}</span>`).join("")
+          : `<span class="muted">None</span>`;
+
+        panel.innerHTML = `
+          <div class="metric-row">
+            <span class="metric-label">IOC Value</span>
+            <span class="metric-value" style="font-family: monospace; word-break: break-all;">${e(rawVal)}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">IOC Type</span>
+            <span class="metric-value">${e(data.entity_type.toUpperCase().replace("CRYPTO_", ""))}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Times Extracted</span>
+            <span class="metric-value" style="font-weight:bold;color:#fbbf24;">${details.msg_count}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">First Seen</span>
+            <span class="metric-value" style="font-size:11px;">${details.first_seen ? fmtTs(details.first_seen) : '—'}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Last Seen</span>
+            <span class="metric-value" style="font-size:11px;">${details.last_seen ? fmtTs(details.last_seen) : '—'}</span>
+          </div>
+          
+          <div style="margin-top: 12px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
+            <h4 style="margin:0 0 4px 0;font-size:11px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.5px;">Associated Senders</h4>
+            <div style="display:flex;flex-wrap:wrap;">${actorsHtml}</div>
+          </div>
+          
+          <div style="margin-top: 12px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
+            <h4 style="margin:0 0 4px 0;font-size:11px;color:#22d3ee;text-transform:uppercase;letter-spacing:0.5px;">Spotted In Groups</h4>
+            <div style="display:flex;flex-wrap:wrap;">${groupsHtml}</div>
+          </div>
+          
+          <button class="btn btn-primary btn-sm" style="width:100%;margin-top:15px;justify-content:center;" onclick="pivotToMessagesSearch('${e(rawVal)}')">
+            🔍 Pivot to Messages
+          </button>
+        `;
+      });
+      
   } else {
     const typeText = data.type === 'source' ? 'Forward Source Channel' : 'Ingested Target Group';
     const centralityScaled = data.pagerank ? (data.pagerank * 100).toFixed(2) + '%' : '0.00%';
@@ -1352,6 +1489,7 @@ function displayNodeDetails(data) {
     }
   }
 }
+
 
 function resetNodeDetails() {
   const panel = document.getElementById("network-node-details");

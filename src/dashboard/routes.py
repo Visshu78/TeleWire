@@ -104,7 +104,9 @@ def api_messages():
         fetched_by=request.args.get("fetched_by") or None,
         request_dow=request_dow,
         request_hour=request_hour,
+        q=request.args.get("q") or None,
     )
+
     # Attach entities for each message
     for msg in result["messages"]:
         msg["entities"] = db.get_message_entities(msg["id"])
@@ -172,7 +174,30 @@ def api_network_graph():
     return jsonify(graph)
 
 
+@bp.route("/api/network/node-details")
+def api_network_node_details():
+    node_id = request.args.get("id") or ""
+    node_type = request.args.get("type") or ""
+    db = _db()
+    
+    if node_type == "actor":
+        key = node_id.replace("actor_", "", 1)
+        details = db.get_actor_node_details(key)
+        return jsonify(details)
+    elif node_type == "entity":
+        ent_str = node_id.replace("entity_", "", 1)
+        try:
+            ent_id = int(ent_str)
+        except ValueError:
+            return jsonify({"error": "Invalid entity ID"}), 400
+        details = db.get_entity_node_details(ent_id)
+        return jsonify(details)
+    else:
+        return jsonify({"error": "Unsupported node type for detailed fetch"}), 400
+
+
 @bp.route("/api/settings", methods=["GET", "POST"])
+
 def api_settings():
     db = _db()
     if request.method == "POST":
