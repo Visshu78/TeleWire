@@ -1498,6 +1498,33 @@ class DatabaseHandler:
             logger.error("get_ioc_pivot failed: %s", exc)
             return []
 
+    def get_keyword_effectiveness(self) -> list:
+        """
+        Calculate metrics for keywords:
+        - Keyword string
+        - Total matched messages count
+        - High-risk messages count
+        - Average risk score
+        """
+        sql = """
+            SELECT 
+                k.keyword,
+                COUNT(m.id) AS total_hits,
+                SUM(CASE WHEN m.risk_score >= 70 THEN 1 ELSE 0 END) AS high_risk_hits,
+                COALESCE(AVG(m.risk_score), 0.0) AS avg_risk
+            FROM keywords k
+            LEFT JOIN messages m ON k.keyword = m.matched_keyword AND m.is_matched = 1
+            GROUP BY k.keyword
+            ORDER BY total_hits DESC
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                rows = conn.execute(sql).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_keyword_effectiveness failed: %s", exc)
+            return []
+
 
 # ---------------------------------------------------------------------------
 # Helpers

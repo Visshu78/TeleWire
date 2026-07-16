@@ -110,6 +110,23 @@ def api_messages():
         msg["entities"] = db.get_message_entities(msg["id"])
     return jsonify(result)
 
+@bp.route("/api/messages/<int:msg_id>/translate")
+def api_translate_message(msg_id):
+    db = _db()
+    msg = db.get_message_by_row_id(msg_id)
+    if not msg:
+        return jsonify({"error": "Message not found"}), 404
+    text = msg.get("text", "")
+    if not text:
+        return jsonify({"translated_text": ""})
+    try:
+        from deep_translator import GoogleTranslator
+        translated = GoogleTranslator(source='auto', target='en').translate(text)
+        return jsonify({"translated_text": translated})
+    except Exception as exc:
+        logger.error("Translation failed for message %d: %s", msg_id, exc)
+        return jsonify({"error": str(exc)}), 500
+
 
 @bp.route("/api/wallets/<address>/enrichment")
 def api_wallet_enrichment(address):
@@ -277,6 +294,11 @@ def api_keywords():
     return jsonify(_db().get_keywords())
 
 
+@bp.route("/api/keywords/effectiveness")
+def api_keyword_effectiveness():
+    return jsonify(_db().get_keyword_effectiveness())
+
+
 @bp.route("/api/keywords", methods=["POST"])
 def api_add_keyword():
     data = request.get_json(force=True, silent=True) or {}
@@ -401,9 +423,9 @@ def api_case_report(case_id):
     details = db.get_case_details(case_id)
     if not details:
         return jsonify({"error": "Case not found"}), 404
-    from src.processing.reporting_service import compile_intelligence_brief
-    report_md = compile_intelligence_brief(details)
-    return report_md, 200, {"Content-Type": "text/markdown; charset=utf-8"}
+    from src.processing.reporting_service import compile_case_briefing_html
+    report_html = compile_case_briefing_html(details)
+    return report_html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @bp.route("/api/watchlists", methods=["GET", "POST"])

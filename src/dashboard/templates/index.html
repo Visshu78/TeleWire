@@ -146,6 +146,12 @@
           <input type="time" id="filter-time-to" class="input-sm" placeholder="23:59"/></div>
         <div class="filter-field checkbox-field">
           <label><input type="checkbox" id="filter-matched-only"/> Hits only</label></div>
+        <div class="filter-field">
+          <label>Watchlist Presets</label>
+          <select id="filter-watchlist-preset" class="input-sm" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px; font-size: 12px; max-width: 150px;" onchange="loadWatchlistPreset(this.value)">
+            <option value="">-- Select Watchlist --</option>
+          </select>
+        </div>
         <button class="btn btn-primary" onclick="loadMessages(1)">Search</button>
         <button class="btn btn-ghost"   onclick="clearFilters()">Clear</button>
         <button class="btn btn-ghost"   onclick="saveCurrentWatchlist()">💾 Save Watchlist</button>
@@ -306,6 +312,26 @@
       <button class="btn btn-primary" onclick="addKeyword()">+ Add</button>
     </div>
     <div class="keywords-cloud glass-card" id="keywords-cloud"><div class="loading-cell">Loading…</div></div>
+
+    <div class="glass-card" style="margin-top: 20px;">
+      <h3 style="margin: 0 0 15px 0; color: #a78bfa; font-size: 15px; text-transform: uppercase; letter-spacing: 0.5px;">🔍 Keyword Hit Performance & Effectiveness</h3>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Keyword</th>
+              <th>Total Alerts Ingested</th>
+              <th>High-Risk Matches (Score ≥ 70)</th>
+              <th>Avg Threat Score</th>
+              <th>Effectiveness Rating</th>
+            </tr>
+          </thead>
+          <tbody id="keywords-effectiveness-body">
+            <tr><td colspan="5" class="loading-cell">Loading effectiveness stats…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <!-- ════════════════ EXPORT ════════════════ -->
@@ -547,8 +573,15 @@
           <div><strong>Risk Score:</strong> <span id="modal-risk-score"></span></div>
         </div>
         <div class="modal-message-box">
-          <h4>Message Text</h4>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="margin: 0;">Message Text</h4>
+            <button id="modal-btn-translate" class="btn btn-sm btn-ghost" onclick="translateMessage()" style="padding: 2px 8px; font-size: 11px; display: none;">🌐 Translate</button>
+          </div>
           <p id="modal-text" style="white-space: pre-wrap; word-break: break-all; margin: 0;"></p>
+        </div>
+        <div id="modal-translation-box" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(167, 139, 250, 0.25); background: rgba(167, 139, 250, 0.04);">
+          <h4 style="color: #c4b5fd;">English Translation</h4>
+          <p id="modal-translation-text" style="white-space: pre-wrap; word-break: break-all; margin: 0; font-style: italic; color: #ede9fe;"></p>
         </div>
         <div id="modal-media-box" class="modal-media-box" style="display: none; margin-top: 15px;">
           <h4>Ingested Media Image</h4>

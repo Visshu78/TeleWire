@@ -566,6 +566,22 @@ function openMessageDetail(index) {
   document.getElementById("modal-threat-category").innerHTML = getThreatBadge(m.threat_category);
   document.getElementById("modal-campaign").textContent = m.campaign_id || "None";
   document.getElementById("modal-risk-score").innerHTML = getRiskScoreBadge(m.risk_score);
+
+  // Reset Translation UI
+  const transBox = document.getElementById("modal-translation-box");
+  const transText = document.getElementById("modal-translation-text");
+  const transBtn = document.getElementById("modal-btn-translate");
+  if (transBox) transBox.style.display = "none";
+  if (transText) transText.textContent = "";
+  if (transBtn) {
+    if (m.language && m.language.toLowerCase() !== "en" && m.language.toLowerCase() !== "unknown") {
+      transBtn.style.display = "block";
+      transBtn.textContent = "🌐 Translate";
+      transBtn.disabled = false;
+    } else {
+      transBtn.style.display = "none";
+    }
+  }
   
   // Highlight entities
   const text = m.text || "";
@@ -948,7 +964,6 @@ async function toggleGroup(groupId, checkbox) {
   } catch (e) { toast("Toggle failed", "error"); checkbox.checked = !checkbox.checked; }
 }
 
-// ── Keywords ──────────────────────────────────────────────────────────────────
 async function loadKeywords() {
   try {
     const kws = await fetch("/api/keywords").then(r => r.json());
@@ -958,7 +973,55 @@ async function loadKeywords() {
       `<span class="kw-chip">${e(k)} <button class="kw-remove" onclick="removeKeyword('${e(k)}')">×</button></span>`
     ).join("");
     loadKeywordsIntoDropdowns();
+    loadKeywordEffectiveness();
   } catch (err) { console.error(err); }
+}
+
+async function loadKeywordEffectiveness() {
+  const tbody = document.getElementById("keywords-effectiveness-body");
+  if (!tbody) return;
+  try {
+    const stats = await fetch("/api/keywords/effectiveness").then(r => r.json());
+    if (!stats || !stats.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="loading-cell">No keyword alerts tracked yet.</td></tr>`;
+      return;
+    }
+    
+    tbody.innerHTML = stats.map(s => {
+      const risk = s.avg_risk || 0.0;
+      const riskCls = risk >= 70 ? "risk-high" : risk >= 40 ? "risk-medium" : "risk-low";
+      
+      // Determine effectiveness rating
+      let rating = "—";
+      let ratingStyle = "background: rgba(255,255,255,0.05); color: #fff;";
+      if (s.total_hits === 0) {
+        rating = "INACTIVE";
+        ratingStyle = "background: rgba(148,163,184,0.15); color: #94a3b8;";
+      } else if (risk < 25.0 && s.total_hits > 15) {
+        rating = "⚠️ NOISY";
+        ratingStyle = "background: rgba(59,130,246,0.15); color: #60a5fa;";
+      } else if (risk >= 60.0 || s.high_risk_hits > 5) {
+        rating = "🔥 HIGH YIELD";
+        ratingStyle = "background: rgba(239,68,68,0.15); color: #f87171;";
+      } else {
+        rating = "MODERATE";
+        ratingStyle = "background: rgba(249,115,22,0.15); color: #fb923c;";
+      }
+
+      return `
+        <tr>
+          <td style="font-weight:600; color: #a78bfa;">${e(s.keyword)}</td>
+          <td><strong>${s.total_hits}</strong></td>
+          <td><span style="font-weight:600;">${s.high_risk_hits}</span></td>
+          <td><span class="${riskCls}">${risk.toFixed(1)}</span></td>
+          <td><span style="display:inline-block; padding: 2px 8px; border-radius: 4px; font-size:11px; font-weight:700; ${ratingStyle}">${rating}</span></td>
+        </tr>
+      `;
+    }).join("");
+  } catch (err) {
+    console.error("Failed to load keyword effectiveness:", err);
+    tbody.innerHTML = `<tr><td colspan="5" class="loading-cell" style="color:#ef4444;">Failed to load keyword analytics.</td></tr>`;
+  }
 }
 
 async function addKeyword() {
@@ -1631,6 +1694,19 @@ function renderCasesDeck(cases) {
 
 function renderWatchlistsDeck(watchlists) {
   const deck = document.getElementById("watchlists-list-deck");
+  
+  // Populate preset dropdown in messages tab
+  const presetDropdown = document.getElementById("filter-watchlist-preset");
+  if (presetDropdown) {
+    presetDropdown.innerHTML = '<option value="">-- Select Watchlist --</option>';
+    watchlists.forEach(w => {
+      const opt = document.createElement("option");
+      opt.value = JSON.stringify(w.query_params);
+      opt.textContent = w.name;
+      presetDropdown.appendChild(opt);
+    });
+  }
+
   if (!deck) return;
   
   if (!watchlists.length) {
@@ -1837,6 +1913,16 @@ function runSavedWatchlist(params) {
   
   showSection("messages");
   loadMessages(1);
+}
+
+function loadWatchlistPreset(paramsStr) {
+  if (!paramsStr) return;
+  try {
+    const params = JSON.parse(paramsStr);
+    runSavedWatchlist(params);
+  } catch(e) {
+    console.error("Failed to parse watchlist preset:", e);
+  }
 }
 
 async function deleteWatchlist(wid, event) {
@@ -2462,6 +2548,39 @@ function openPivotMessageDetailInPlace(index) {
   // Note: We DO NOT close the pivot sidebar pane, allowing the analyst to browse items in place!
   window.currentMessages = [m];
   openMessageDetail(0);
+}
+
+async function translateMessage() {
+  const msgId = window.currentMessageId;
+  if (!msgId) return;
+
+  const btn = document.getElementById("modal-btn-translate");
+  const transBox = document.getElementById("modal-translation-box");
+  const transText = document.getElementById("modal-translation-text");
+
+  if (!btn || !transBox || !transText) return;
+
+  btn.disabled = true;
+  btn.textContent = "⏳ Translating...";
+
+  try {
+    const res = await fetch(`/api/messages/${msgId}/translate`).then(r => r.json());
+    if (res.error) {
+      showToast(`Translation error: ${res.error}`);
+      btn.disabled = false;
+      btn.textContent = "🌐 Translate";
+      return;
+    }
+
+    transText.textContent = res.translated_text || "[No translated text returned]";
+    transBox.style.display = "block";
+    btn.textContent = "✅ Translated";
+  } catch (err) {
+    console.error("Translation request failed:", err);
+    showToast("Failed to request translation from backend.");
+    btn.disabled = false;
+    btn.textContent = "🌐 Translate";
+  }
 }
 
 
