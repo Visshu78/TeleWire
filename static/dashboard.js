@@ -940,17 +940,22 @@ async function loadGroups() {
       return;
     }
     grid.innerHTML = groups.map(g => `
-      <div class="group-card ${g.is_active ? 'active' : ''}">
+      <div class="group-card ${g.is_active ? 'active' : ''}" id="gcard-${g.group_id}">
         <div class="group-info">
           <div class="group-name">${e(g.group_name || "Unknown")}</div>
           <div class="group-meta muted">${g.group_type} · ${(g.member_count||0).toLocaleString()} members</div>
           ${g.last_message_at ? `<div class="group-meta muted">Last: ${fmtTs(g.last_message_at)}</div>` : ""}
         </div>
-        <label class="toggle-switch" title="${g.is_active ? 'Monitoring ON' : 'Monitoring OFF'}">
-          <input type="checkbox" ${g.is_active ? "checked" : ""}
-            onchange="toggleGroup(${g.group_id}, this)"/>
-          <span class="toggle-slider"></span>
-        </label>
+        <div class="group-controls">
+          <label class="toggle-switch" title="${g.is_active ? 'Monitoring ON' : 'Monitoring OFF'}">
+            <input type="checkbox" ${g.is_active ? "checked" : ""}
+              onchange="toggleGroup(${g.group_id}, this)"/>
+            <span class="toggle-slider"></span>
+          </label>
+          <button class="btn-leave-group" onclick="leaveGroup(${g.group_id}, '${e(g.group_name || 'this group')}')" title="Leave group and stop monitoring">
+            🚪 Leave
+          </button>
+        </div>
       </div>`).join("");
   } catch (err) { console.error(err); }
 }
@@ -962,6 +967,48 @@ async function toggleGroup(groupId, checkbox) {
     if (res.is_active) { card.classList.add("active"); toast("Monitoring ON"); }
     else               { card.classList.remove("active"); toast("Monitoring OFF"); }
   } catch (e) { toast("Toggle failed", "error"); checkbox.checked = !checkbox.checked; }
+}
+
+/**
+ * Leave a Telegram group and permanently stop monitoring it.
+ * Shows a confirmation dialog first.
+ */
+async function leaveGroup(groupId, groupName) {
+  const confirmed = window.confirm(
+    `Leave "${groupName}"?\n\nThis will:\n• Make your account exit the Telegram group\n• Stop monitoring new messages from it\n\nYour existing messages and data will be kept for analysis.`
+  );
+  if (!confirmed) return;
+
+  const card = document.getElementById(`gcard-${groupId}`);
+  if (card) {
+    card.style.transition = "opacity 0.4s, transform 0.4s";
+    card.style.opacity = "0.4";
+    card.style.pointerEvents = "none";
+  }
+
+  try {
+    const res  = await fetch(`/api/groups/${groupId}/leave`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+
+    if (data.status === "success" || data.status === "partial") {
+      showToast(`🚪 Left "${groupName}" and stopped monitoring.`, "success");
+      if (card) {
+        card.style.transform = "translateX(30px)";
+        setTimeout(() => card.remove(), 400);
+      } else {
+        await loadGroups();
+      }
+    } else {
+      showToast(data.error || "Leave failed.", "error");
+      if (card) { card.style.opacity = "1"; card.style.pointerEvents = ""; }
+    }
+  } catch (err) {
+    showToast("Network error while leaving group.", "error");
+    if (card) { card.style.opacity = "1"; card.style.pointerEvents = ""; }
+  }
 }
 
 async function loadKeywords() {

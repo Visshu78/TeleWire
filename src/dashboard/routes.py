@@ -561,6 +561,25 @@ def api_groups_join():
         return jsonify({"error": str(exc)}), 500
 
 
+@bp.route("/api/groups/<int:group_id>/leave", methods=["POST"])
+def api_groups_leave(group_id: int):
+    """Leave a Telegram group and stop monitoring it."""
+    manager = current_app.config.get("PIPELINE_MANAGER")
+    db = _db()
+    phone = (request.get_json() or {}).get("phone") or None
+    try:
+        if manager:
+            res = _run_async(manager.leave_group(group_id, phone))
+        else:
+            # No pipeline manager — just mark inactive in DB
+            db.remove_group(group_id)
+            res = {"status": "partial", "message": "Marked inactive (no Telethon client)."}
+        return jsonify(res)
+    except Exception as exc:
+        logger.error("leave_group route error: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
 @bp.route("/api/groups/search", methods=["GET"])
 def api_groups_search():
     manager = current_app.config.get("PIPELINE_MANAGER")

@@ -295,8 +295,33 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
 .group-card:hover { background: var(--bg-card-hover); }
 .group-name  { font-weight: 600; font-size: 14px; }
 .group-meta  { font-size: 12px; color: var(--text-muted); }
-.group-toggle {
-  margin-top: 4px; display: flex; align-items: center; gap: 10px;
+.group-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.btn-leave-group {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-leave-group:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
 }
 
 /* Toggle switch */

@@ -388,3 +388,61 @@ class PipelineManager:
             logger.error("Failed to search public groups for query '%s': %s", query, e)
             return []
 
+    async def leave_group(self, group_id: int, phone: str = None) -> dict:
+        """
+        Leave a Telegram group/channel by group_id.
+
+        Steps:
+          1. Resolve the entity from Telethon using the group_id.
+          2. Call LeaveChannelRequest (channels) or LeaveChat (basic chats).
+          3. Mark the group inactive in the DB.
+          4. Remove from the active-group cache so new messages are ignored.
+
+        Returns a result dict with status and message.
+        """
+        if not self.active_clients:
+            return {"status": "error", "message": "No active Telegram accounts connected."}
+
+        client = self.active_clients.get(phone) if phone else None
+        if not client:
+            client = list(self.active_clients.values())[0]
+
+        from telethon.tl.functions.channels import LeaveChannelRequest
+        from telethon.tl.functions.messages import DeleteChatUserRequest
+        from telethon.tl.types import Channel, Chat, InputPeerChannel, InputPeerChat
+        from telethon.errors import ChannelPrivateError, ChatForbiddenError
+
+        try:
+            entity = await client.get_entity(group_id)
+        except Exception as exc:
+            logger.warning("leave_group: could not resolve entity %s: %s", group_id, exc)
+            entity = None
+
+        telethon_ok = False
+        if entity is not None:
+            try:
+                if isinstance(entity, Channel):
+                    await client(LeaveChannelRequest(entity))
+                elif isinstance(entity, Chat):
+                    me = await client.get_me()
+                    await client(DeleteChatUserRequest(chat_id=entity.id, user_id=me))
+                telethon_ok = True
+                logger.info("Left Telegram group %s (%s)", group_id, getattr(entity, 'title', ''))
+            except (ChannelPrivateError, ChatForbiddenError):
+                # Already kicked or private — treat as success
+                telethon_ok = True
+            except Exception as exc:
+                logger.warning("leave_group Telethon error for %s: %s", group_id, exc)
+
+        # Always update DB + cache regardless of Telethon result
+        self.db.remove_group(group_id)
+        self.group_cache.set_active(group_id, False)
+
+        group_name = getattr(entity, 'title', str(group_id)) if entity else str(group_id)
+        return {
+            "status": "success" if telethon_ok else "partial",
+            "message": f"Left and stopped monitoring '{group_name}'.",
+            "telethon_left": telethon_ok,
+            "group_id": group_id,
+        }
+

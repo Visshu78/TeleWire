@@ -743,6 +743,23 @@ class DatabaseHandler:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def remove_group(self, group_id: int) -> bool:
+        """
+        Mark a group as inactive (is_active=0) so the pipeline stops
+        monitoring it. Returns True if a row was updated, False if not found.
+        We keep the row (and all messages) for historical analysis.
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                cur = conn.execute(
+                    "UPDATE groups SET is_active = 0 WHERE group_id = ?",
+                    (group_id,),
+                )
+            return cur.rowcount > 0
+        except Exception as exc:
+            logger.error("remove_group failed: %s", exc)
+            return False
+
     # ── Keywords ──────────────────────────────────────────────────────────────
 
     def get_keywords(self) -> list:
