@@ -116,10 +116,11 @@ This script streams realistic target channels traffic, extracts test wallet addr
 *   **Web-Based OTP Authentication:** Adds new phone numbers live from the dashboard, executing the OTP handshake sequence asynchronously and prompting the analyst via dynamic forms.
 *   **Runtime Toggle:** Suspends/resumes update fetches across all streams via global flag changes without breaking Telegram socket connections.
 
-### 3. Entity Extraction & Sanctions Audit
+### 3. Entity Extraction, Geolocation & Sanctions Audit
 *   **Entity Extractor (`src/processing/entity_extractor.py`):** Validates and extracts phone numbers, emails, URLs, IP addresses, Telegram handles, crypto wallet addresses (BTC legacy/Bech32, Ethereum, TRON/TRC20, TON user-friendly), UPI IDs, IBANs, and credit card numbers.
 *   **OFAC Sanctions Auditor (`src/processing/wallet_enricher.py`):** Automatically downloads and caches the US Treasury SDN lists (XBT, ETH, TRX) in the background. Matches extracted wallets against these records on ingest, raising immediate alerts for sanctioned hits.
 *   **Blockchain Enriched Profile:** Background thread queries public blockchain APIs (Blockchair, TronGrid, TonCenter) for balances, transaction counts, and active timestamps, respecting rate limits via a 2-second sleep interval.
+*   **Phone Carrier & Location Lookup:** Synchronously performs local geocoding lookups using the `phonenumbers` package. Resolves country, regional location/state, mobile carrier, and formatting correctness.
 
 ### 4. Zero-Shot NLP & FAISS Campaign Clustering
 *   **Sentence Transformers (`src/processing/semantic_service.py`):** Vectorizes text and OCR extracts using `all-MiniLM-L6-v2` into 384-dimensional embeddings, caching the local model structure under `data/models/`.
@@ -144,6 +145,18 @@ This script streams realistic target channels traffic, extracts test wallet addr
 ### 8. Case Builder Workspace
 *   **Case Folders (`src/processing/reporting_service.py`):** Groups related findings (threat messages, wallets, and actor handles) into a single folder.
 *   **Executive Intelligence Brief:** Generates and compiles a downloadable, styled executive summary in Markdown containing case inventory metrics, risk evaluations, and formatted message logs.
+
+### 9. Group Discovery Scanner & Direct Joins
+*   **Group Discovery Service (`src/ingestion/discovery_service.py`):** Runs an async background scan every 5 minutes.
+  *   *Keyword searches:* Queries global public search results for configured threat words using `contacts.SearchRequest`.
+  *   *Invite Link Extraction:* Pulls `t.me/+` invite links from ingested messages, using `CheckChatInviteRequest` to peek the group title and member count without joining.
+*   **Analyst Review Pipeline:** Places discovered targets in a pending queue for approval. Clicking `✅ Start Monitoring` performs an auto-join, while `✕ Dismiss` rejects the target. Monitored groups can be exited via the `🚪 Leave` action button.
+
+### 10. Heatmaps, Watchlists & Multi-Select Utilities
+*   **Temporal Heatmap:** Draws a 7x24 canvas grid mapping posting counts and threat densities over week days/hours. Provides instant interactive dashboard filters on click.
+*   **Multi-Select Dropdowns:** Replaces classic dropdown selectors with searchable, multi-value multi-select tags in Messages, Time Range, and Export tabs.
+*   **Saved Watchlists:** Creates filter state bookmark presets to quickly load preset search queries.
+*   **Live Translation:** Incorporates backend multi-language translation buttons inside the message detail drawer.
 
 ---
 
@@ -300,7 +313,18 @@ Stores details of crypto wallets parsed by blockchain API workers.
 *   `enrichment_source` (TEXT): API name (e.g. `Blockchair`).
 *   `last_enriched_at` (TEXT): Update timestamp.
 
-### 8. Table: `campaigns`
+### 8. Table: `phone_enrichments`
+Stores offline carrier and location information parsed via the `phonenumbers` library.
+*   `entity_id` (INTEGER, Primary Key): FK referencing `entities(id)`.
+*   `country_code` (TEXT): Numeric calling code (e.g. `91` for India).
+*   `country_name` (TEXT): Resolved country name (e.g. `India`).
+*   `location` (TEXT): Resolved region/city details.
+*   `carrier` (TEXT): Network operator name (e.g. `Airtel`, `Reliance Jio`).
+*   `national_number` (TEXT): Phone number excluding country code.
+*   `is_valid` (INTEGER): `1` if valid format; `0` if invalid.
+*   `last_enriched_at` (TEXT): Update timestamp.
+
+### 9. Table: `campaigns`
 Stores coordinated campaign details.
 *   `id` (TEXT, Primary Key): Campaign hash identifier.
 *   `campaign_name` (TEXT): Human-readable name.
@@ -309,7 +333,7 @@ Stores coordinated campaign details.
 *   `threat_category` (TEXT): Shared threat classification.
 *   `representative_text` (TEXT): Snippet of text.
 
-### 9. Table: `sender_profiles`
+### 10. Table: `sender_profiles`
 Sender risk aggregation tables.
 *   `id` (INTEGER, Primary Key): Primary Key.
 *   `sender_id` (TEXT, Unique): Telegram sender identifier.
@@ -320,14 +344,14 @@ Sender risk aggregation tables.
 *   `last_seen_at` (TEXT): Last message timestamp.
 *   `risk_tier` (TEXT): Classified tier (`Critical`, `High`, `Medium`, `Low`).
 
-### 10. Table: `cases`
+### 11. Table: `cases`
 Analyst case compilation directories.
 *   `id` (TEXT, Primary Key): Case UUID.
 *   `title` (TEXT): Case folder header.
 *   `description` (TEXT): Analyst executive overview.
 *   `created_at` (TEXT): Creation timestamp.
 
-### 11. Table: `case_items`
+### 12. Table: `case_items`
 Maps message rows, crypto wallets, and actors to specific case folders.
 *   `id` (INTEGER, Primary Key): Row ID.
 *   `case_id` (TEXT): FK referencing `cases(id)`.
@@ -335,14 +359,14 @@ Maps message rows, crypto wallets, and actors to specific case folders.
 *   `item_value` (TEXT): Row ID or address value string.
 *   `added_at` (TEXT): Mapping creation time.
 
-### 12. Table: `watchlists`
+### 13. Table: `watchlists`
 Bookmarks filter metrics.
 *   `id` (TEXT, Primary Key): Watchlist UUID.
 *   `name` (TEXT): Title.
 *   `query_params` (TEXT): JSON parameters.
 *   `created_at` (TEXT): Creation timestamp.
 
-### 13. Table: `telegram_accounts`
+### 14. Table: `telegram_accounts`
 Monitored Telegram sessions credentials.
 *   `phone` (TEXT, Primary Key): Phone number key.
 *   `api_id` (INTEGER): Telegram app configuration identifier.
@@ -351,29 +375,43 @@ Monitored Telegram sessions credentials.
 *   `is_active` (INTEGER): Monitoring flag.
 *   `status` (TEXT): Connection state (`connected`, `disconnected`, `needs_otp`).
 
+### 15. Table: `pending_groups`
+Stores auto-discovered groups pending approval.
+*   `id` (INTEGER, Primary Key): Auto-increment row ID.
+*   `group_id` (INTEGER): Telegram group ID (if resolved).
+*   `group_name` (TEXT): Real group name or invite link placeholder.
+*   `group_username` (TEXT): Public handle username.
+*   `member_count` (INTEGER): Resolving member count.
+*   `invite_link` (TEXT): Parsed t.me/+ invite link.
+*   `source` (TEXT): `'keyword_search'` or `'invite_link'`.
+*   `source_keyword` (TEXT): Keyword that triggered search discovery.
+*   `discovered_at` (TEXT): Discovery timestamp.
+*   `status` (TEXT): `'pending'`, `'approved'`, `'dismissed'`.
+*   `context_text` (TEXT): Context snippet of source message where found.
+
 ---
 
 ## 📊 Sidebar Navigation Workspaces & How They Work
 
 ### 🏠 1. Dashboard
-*   **What it is:** High-level analytics console showing system stats cards and interactive metrics charts.
-*   **Under the Hood:** Invokes `/api/stats` aggregating message volume history, tracking active groups, showing keyword volume counts via Chart.js, and plotting top active groups.
+*   **What it is:** High-level analytics console showing system stats cards, interactive metrics charts, and a **7x24 Temporal Activity Heatmap**.
+*   **Under the Hood:** Invokes `/api/stats` aggregating message volume history, tracking active groups, showing keyword volume counts via Chart.js, plotting top active groups, and drawing a canvas activity density matrix. Click any timezone cell to filter the messages listing.
 
 ### 💬 2. Messages
-*   **What it is:** Granular search engine spreadsheet displaying all ingested messages.
-*   **Under the Hood:** Connects user queries to SQL search operations. Row colors indicate status: Green = Keyword Hit, Gold = Cross-Group Forward, Dark Amber = Both. Clicking a row slides open a detailed analyst card showcasing PyTesseract OCR text, decoded QR codes, extracted entities, and similar visual matches (Hamming Distance check).
+*   **What it is:** Granular search engine spreadsheet displaying all ingested messages with multi-value filtering.
+*   **Under the Hood:** Connects user queries to SQL search operations. Supports **Multi-Select dropdown filtering** for keywords and channels. Row colors indicate status: Green = Keyword Hit, Gold = Cross-Group Forward, Dark Amber = Both. Clicking a row slides open a detailed analyst card showcasing PyTesseract OCR text, decoded QR codes, extracted entities (wallets, phone lookups), and a **Side-by-Side IOC Pivot Drawer** (linked via double-click on highlights). Supports live **🌐 Multi-Language translation**.
 
 ### 🕐 3. Time Range
 *   **What it is:** Search workspace focused on isolating narrow operational time intervals.
 *   **Under the Hood:** Translates natural date inputs into UTC timestamps, performing SQLite indexed range scans. Offers one-click extraction exports.
 
 ### 👥 4. Groups
-*   **What it is:** Registry console controlling the monitoring target groups.
-*   **Under the Hood:** Lists all synced dialogs. Live toggle triggers database changes and modifies the `ActiveGroupCache` list instantly, requiring no daemon restart.
+*   **What it is:** Registry console controlling monitored target groups, direct joining/searching, and the auto-discovery approval queue.
+*   **Under the Hood:** Lists monitored dialogs. Allows manually joining public/private channels. Includes the **Auto-Discovered Groups** analyst workflow card panel (displaying real name/member peeks via `CheckChatInviteRequest` and found message text context) alongside a pulsing badge count (`🔍 N`). Monitored groups can be cleanly left using the **🚪 Leave** action button.
 
 ### 🔑 5. Keywords
 *   **What it is:** Active keyword rules management interface.
-*   **Under the Hood:** Displays chip clouds of keywords. Modifications are written to SQLite, triggering matcher updates within 60s and background retroactive matching on historic messages.
+*   **Under the Hood:** Displays chip clouds of keywords, dynamic effectiveness statistics (hit rates), and a match count table. Modifications are written to SQLite, triggering matcher updates within 60s and background retroactive matching on historic messages.
 
 ### 📥 6. Export
 *   **What it is:** File compiler to extract data for downstream reporting.
