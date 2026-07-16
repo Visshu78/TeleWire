@@ -1,4 +1,4 @@
-﻿"""
+"""
 src/ingestion/discovery_service.py
 -------------------------------------------------------------
 Group Discovery Scanner -- runs as a background asyncio task.
@@ -159,15 +159,17 @@ class GroupDiscoveryService:
 
     async def _scan_invite_links(self) -> int:
         """
-        Query messages from the last 15 minutes and extract t.me/+ hashes.
-        Unknown links are queued for analyst review.
+        Query messages from the last 15 minutes, extract t.me/+ hashes,
+        and use CheckChatInviteRequest to peek the real group name + member
+        count WITHOUT joining. Falls back gracefully on any error.
         Returns count of newly queued links.
         """
+        from telethon.tl.functions.messages import CheckChatInviteRequest
+        from telethon.tl.types import ChatInvite, ChatInviteAlready, ChatInvitePeek
         from telethon.errors import (
             FloodWaitError,
             InviteHashExpiredError,
             InviteHashInvalidError,
-            UserAlreadyParticipantError,
         )
 
         try:
@@ -179,7 +181,7 @@ class GroupDiscoveryService:
                 datetime_from=cutoff,
                 page_size=500,
             )
-            texts = [m.get("text", "") or "" for m in recent.get("messages", [])]
+            messages = recent.get("messages", [])
         except Exception as exc:
             logger.warning("Invite-link scan: failed to fetch messages: %s", exc)
             return 0
@@ -188,10 +190,11 @@ class GroupDiscoveryService:
         new_count = 0
         seen_hashes: set = set()
 
-        for text in texts:
+        for msg in messages:
+            text = msg.get("text", "") or ""
             for match in _INVITE_RE.finditer(text):
                 invite_hash = match.group(1)
-                full_link = f"https://t.me/+{invite_hash}"
+                full_link   = f"https://t.me/+{invite_hash}"
 
                 if invite_hash in seen_hashes:
                     continue
@@ -200,10 +203,39 @@ class GroupDiscoveryService:
                 if self.db.is_group_known(None, None, full_link):
                     continue
 
-                # Save immediately with hash as placeholder name
-                group_name = f"invite:{invite_hash[:8]}..."
-                gid = None
-                members = 0
+                # --- Peek group info WITHOUT joining ---
+                group_name = f"Unknown Group ({invite_hash[:8]}…)"
+                gid        = None
+                members    = 0
+                try:
+                    result = await self.client(CheckChatInviteRequest(hash=invite_hash))
+                    await asyncio.sleep(1.5)  # polite delay
+
+                    if isinstance(result, (ChatInviteAlready, ChatInvitePeek)):
+                        # Already a member — get info from the chat object
+                        chat = getattr(result, "chat", None)
+                        if chat:
+                            group_name = getattr(chat, "title", group_name)
+                            gid        = getattr(chat, "id", None)
+                            members    = getattr(chat, "participants_count", 0) or 0
+                    elif isinstance(result, ChatInvite):
+                        # Not yet a member — can read title + participant count freely
+                        group_name = getattr(result, "title", group_name)
+                        members    = getattr(result, "participants_count", 0) or 0
+
+                except FloodWaitError as exc:
+                    logger.warning("FloodWait on invite peek, sleeping %ds", exc.seconds)
+                    await asyncio.sleep(exc.seconds + 5)
+                    continue
+                except (InviteHashExpiredError, InviteHashInvalidError):
+                    logger.debug("Invite link expired/invalid: %s", full_link)
+                    continue
+                except Exception as exc:
+                    # Non-fatal — still save with placeholder name
+                    logger.debug("CheckChatInvite failed for %s: %s", full_link, exc)
+
+                # Store a short snippet of the source message for context
+                context_text = (text[:200] + "…") if len(text) > 200 else text
 
                 saved = self.db.save_pending_group(
                     group_id=gid,
@@ -214,11 +246,14 @@ class GroupDiscoveryService:
                     source="invite_link",
                     source_keyword=None,
                     discovered_at=now,
+                    context_text=context_text,
                 )
                 if saved:
                     new_count += 1
                     logger.info(
-                        "Discovery [invite-link]: queued link %s", full_link
+                        "Discovery [invite-link]: queued %r (%d members) from %s",
+                        group_name, members, full_link,
                     )
 
         return new_count
+

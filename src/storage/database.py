@@ -201,7 +201,8 @@ CREATE TABLE IF NOT EXISTS pending_groups (
     source          TEXT NOT NULL,
     source_keyword  TEXT,
     discovered_at   TEXT NOT NULL,
-    status          TEXT DEFAULT 'pending'
+    status          TEXT DEFAULT 'pending',
+    context_text    TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_grp_unique
@@ -346,9 +347,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 source          TEXT NOT NULL,
                 source_keyword  TEXT,
                 discovered_at   TEXT NOT NULL,
-                status          TEXT DEFAULT 'pending'
+                status          TEXT DEFAULT 'pending',
+                context_text    TEXT
             );
         """)
+        # Migrate existing pending_groups table if context_text column missing
+        try:
+            pg_cols = {r[1] for r in conn.execute("PRAGMA table_info(pending_groups)").fetchall()}
+            if "context_text" not in pg_cols:
+                conn.execute("ALTER TABLE pending_groups ADD COLUMN context_text TEXT")
+                logger.info("DB migration: added context_text to pending_groups")
+        except Exception as _e:
+            pass
     except Exception as exc:
         logger.error("Failed to execute phase 5 / 6 migrations: %s", exc)
 
@@ -1567,6 +1577,7 @@ class DatabaseHandler:
         source: str,
         source_keyword: str | None,
         discovered_at: str,
+        context_text: str | None = None,
     ) -> bool:
         """
         Save a newly discovered group to pending_groups for analyst review.
@@ -1576,15 +1587,15 @@ class DatabaseHandler:
         sql = """
             INSERT OR IGNORE INTO pending_groups
                 (group_id, group_name, group_username, member_count,
-                 invite_link, source, source_keyword, discovered_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                 invite_link, source, source_keyword, discovered_at, status, context_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         """
         try:
             with get_db(self.db_path) as conn:
                 cur = conn.execute(
                     sql,
                     (group_id, group_name, group_username, member_count,
-                     invite_link, source, source_keyword, discovered_at),
+                     invite_link, source, source_keyword, discovered_at, context_text),
                 )
             return cur.rowcount > 0
         except Exception as exc:

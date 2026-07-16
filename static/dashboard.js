@@ -2630,25 +2630,61 @@ function _renderDiscoveryCards(groups) {
     return;
   }
   list.innerHTML = groups.map(g => {
-    const isInvite  = g.source === "invite_link";
-    const srcChip   = isInvite
+    const isInvite = g.source === "invite_link";
+
+    // Source badge
+    const srcChip = isInvite
       ? `<span class="discovery-chip inv">🔗 Invite Link</span>`
       : `<span class="discovery-chip kw">🔑 ${e(g.source_keyword || "keyword")}</span>`;
-    const members   = g.member_count
-      ? `<span class="discovery-chip">👥 ${Number(g.member_count).toLocaleString()}</span>` : "";
-    const ts        = g.discovered_at ? fmtTs(g.discovered_at) : "";
-    const tsChip    = ts ? `<span class="discovery-chip">⏱ ${ts}</span>` : "";
-    const link      = g.invite_link
+
+    // Member count badge (prominent if available)
+    const membersHtml = g.member_count > 0
+      ? `<span class="discovery-chip" style="background:rgba(251,191,36,0.1);border-color:rgba(251,191,36,0.3);color:#fde68a;">
+           👥 ${Number(g.member_count).toLocaleString()} members
+         </span>` : "";
+
+    // Timestamp
+    const ts = g.discovered_at ? fmtTs(g.discovered_at) : "";
+    const tsChip = ts ? `<span class="discovery-chip">⏰ ${ts}</span>` : "";
+
+    // Link display (shorter, cleaner)
+    const linkHtml = g.invite_link
       ? `<a href="${e(g.invite_link)}" target="_blank"
-            style="font-size:10px;color:#60a5fa;text-decoration:none;word-break:break-all;display:block;margin:3px 0;"
-          >${e(g.invite_link)}</a>`
+            style="font-size:10px;color:#60a5fa;text-decoration:none;display:block;margin:4px 0;
+                   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+            title="${e(g.invite_link)}">${e(g.invite_link)}</a>`
       : g.group_username
-        ? `<span style="font-size:10px;color:#60a5fa;">@${e(g.group_username)}</span>` : "";
+        ? `<span style="font-size:11px;color:#60a5fa;display:block;margin:3px 0;">@${e(g.group_username)}</span>`
+        : "";
+
+    // Context snippet — the message text where the invite link appeared
+    const ctxHtml = (isInvite && g.context_text)
+      ? `<div style="
+            margin-top:7px;
+            padding:6px 8px;
+            background:rgba(255,255,255,0.03);
+            border-left:2px solid rgba(245,158,11,0.4);
+            border-radius:0 4px 4px 0;
+            font-size:11px;
+            color:#94a3b8;
+            line-height:1.45;
+            word-break:break-word;
+          ">
+           <span style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;display:block;margin-bottom:3px;">
+             📨 Found in message:
+           </span>
+           ${e(g.context_text)}
+         </div>` : "";
+
     return `
       <div class="discovery-card" id="dcard-${g.id}">
-        <div class="discovery-card-name" title="${e(g.group_name)}">${e(g.group_name)}</div>
-        ${link}
-        <div class="discovery-card-meta">${srcChip}${members}${tsChip}</div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;">
+          <div class="discovery-card-name" title="${e(g.group_name)}">${e(g.group_name)}</div>
+          ${membersHtml}
+        </div>
+        ${linkHtml}
+        ${ctxHtml}
+        <div class="discovery-card-meta" style="margin-top:6px;">${srcChip}${tsChip}</div>
         <div class="discovery-card-actions">
           <button class="btn-approve" onclick="approveDiscoveredGroup(${g.id})">✅ Start Monitoring</button>
           <button class="btn-dismiss" onclick="dismissDiscoveredGroup(${g.id})" title="Dismiss">✕</button>
@@ -2656,6 +2692,7 @@ function _renderDiscoveryCards(groups) {
       </div>`;
   }).join("");
 }
+
 
 async function approveDiscoveredGroup(id) {
   const card = document.getElementById(`dcard-${id}`);
