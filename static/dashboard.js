@@ -294,7 +294,7 @@ function showSection(name) {
 
   if (name === "dashboard")  refreshDashboard();
   if (name === "messages")   loadMessages(1);
-  if (name === "groups")     loadGroups();
+  if (name === "groups")   { loadGroups(); loadDiscoveredGroups(); }
   if (name === "keywords")   loadKeywords();
   if (name === "campaigns")  loadCampaigns();
   if (name === "network")    loadNetworkIntel();
@@ -2585,3 +2585,119 @@ async function translateMessage() {
 
 
 
+
+// =========================================================
+// -- Group Discovery Scanner UI
+// =========================================================
+
+let _discoveryPollTimer = null;
+
+async function loadDiscoveredGroups() {
+  const list = document.getElementById("discovery-cards-list");
+  if (!list) return;
+  list.innerHTML = `<div class="muted" style="font-size:13px;text-align:center;padding:20px 0;">Loading...</div>`;
+  try {
+    const res  = await fetch("/api/discovery/pending");
+    const data = await res.json();
+    _renderDiscoveryCards(data.groups || []);
+    _updateDiscoveryBadge(data.count || 0);
+  } catch (err) {
+    list.innerHTML = `<div class="muted" style="font-size:12px;text-align:center;padding:15px 0;color:#ef4444;">Error loading discoveries.</div>`;
+  }
+}
+
+function _updateDiscoveryBadge(count) {
+  const badge = document.getElementById("discovery-nav-badge");
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = "inline-flex";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+function _renderDiscoveryCards(groups) {
+  const list = document.getElementById("discovery-cards-list");
+  if (!list) return;
+  if (!groups.length) {
+    list.innerHTML = `
+      <div style="text-align:center; padding:30px 10px;">
+        <div style="font-size:28px; margin-bottom:8px;">📡</div>
+        <div style="font-size:13px; color:#64748b;">Scanner is running...</div>
+        <div style="font-size:11px; color:#475569; margin-top:4px;">New groups will appear here when found.</div>
+      </div>`;
+    return;
+  }
+  list.innerHTML = groups.map(g => {
+    const isInvite  = g.source === "invite_link";
+    const srcChip   = isInvite
+      ? `<span class="discovery-chip inv">🔗 Invite Link</span>`
+      : `<span class="discovery-chip kw">🔑 ${e(g.source_keyword || "keyword")}</span>`;
+    const members   = g.member_count
+      ? `<span class="discovery-chip">👥 ${Number(g.member_count).toLocaleString()}</span>` : "";
+    const ts        = g.discovered_at ? fmtTs(g.discovered_at) : "";
+    const tsChip    = ts ? `<span class="discovery-chip">⏱ ${ts}</span>` : "";
+    const link      = g.invite_link
+      ? `<a href="${e(g.invite_link)}" target="_blank"
+            style="font-size:10px;color:#60a5fa;text-decoration:none;word-break:break-all;display:block;margin:3px 0;"
+          >${e(g.invite_link)}</a>`
+      : g.group_username
+        ? `<span style="font-size:10px;color:#60a5fa;">@${e(g.group_username)}</span>` : "";
+    return `
+      <div class="discovery-card" id="dcard-${g.id}">
+        <div class="discovery-card-name" title="${e(g.group_name)}">${e(g.group_name)}</div>
+        ${link}
+        <div class="discovery-card-meta">${srcChip}${members}${tsChip}</div>
+        <div class="discovery-card-actions">
+          <button class="btn-approve" onclick="approveDiscoveredGroup(${g.id})">✅ Start Monitoring</button>
+          <button class="btn-dismiss" onclick="dismissDiscoveredGroup(${g.id})" title="Dismiss">✕</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function approveDiscoveredGroup(id) {
+  const card = document.getElementById(`dcard-${id}`);
+  if (card) { card.style.opacity = "0.5"; card.style.pointerEvents = "none"; }
+  try {
+    const res  = await fetch(`/api/discovery/${id}/approve`, { method: "POST" });
+    const data = await res.json();
+    if (data.success) showToast("✅ Group approved and monitoring request sent!", "success");
+    else showToast(data.error || "Approve failed", "error");
+  } catch (err) { showToast("Network error during approve.", "error"); }
+  await loadDiscoveredGroups();
+  await loadGroups();
+}
+
+async function dismissDiscoveredGroup(id) {
+  const card = document.getElementById(`dcard-${id}`);
+  if (card) {
+    card.style.transition = "opacity 0.3s, transform 0.3s";
+    card.style.opacity    = "0";
+    card.style.transform  = "translateX(20px)";
+  }
+  setTimeout(async () => {
+    try { await fetch(`/api/discovery/${id}/dismiss`, { method: "POST" }); } catch (_) {}
+    await loadDiscoveredGroups();
+  }, 300);
+}
+
+function startDiscoveryBadgePoll() {
+  if (_discoveryPollTimer) clearInterval(_discoveryPollTimer);
+  _discoveryPollTimer = setInterval(async () => {
+    try {
+      const res  = await fetch("/api/discovery/count");
+      const data = await res.json();
+      _updateDiscoveryBadge(data.count || 0);
+    } catch (_) {}
+  }, 60000);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  startDiscoveryBadgePoll();
+  fetch("/api/discovery/count")
+    .then(r => r.json())
+    .then(d => _updateDiscoveryBadge(d.count || 0))
+    .catch(() => {});
+});

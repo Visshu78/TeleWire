@@ -580,3 +580,58 @@ def api_groups_search():
 @bp.route("/health")
 def health():
     return jsonify({"status": "ok", "time": datetime.now(timezone.utc).isoformat()})
+
+
+# ---------------------------------------------------------------------------
+# Group Discovery API
+# ---------------------------------------------------------------------------
+
+@bp.route("/api/discovery/pending", methods=["GET"])
+def api_discovery_pending():
+    """Return all pending discovered groups for analyst review."""
+    db = _db()
+    groups = db.get_pending_groups(status="pending")
+    return jsonify({"groups": groups, "count": len(groups)})
+
+
+@bp.route("/api/discovery/count", methods=["GET"])
+def api_discovery_count():
+    """Return count of unreviewed pending discoveries (used for nav badge)."""
+    db = _db()
+    count = db.get_pending_groups_count()
+    return jsonify({"count": count})
+
+
+@bp.route("/api/discovery/<int:pending_id>/approve", methods=["POST"])
+def api_discovery_approve(pending_id: int):
+    """
+    Approve a pending group: join it via PipelineManager (if invite_link)
+    or add it to monitored groups (if group_id/username), then set status='approved'.
+    """
+    db = _db()
+    manager = current_app.config.get("PIPELINE_MANAGER")
+
+    pending = db.get_pending_groups(status="pending")
+    item = next((g for g in pending if g["id"] == pending_id), None)
+    if not item:
+        return jsonify({"error": "Pending group not found"}), 404
+
+    join_result = {"status": "queued"}
+    link = item.get("invite_link") or item.get("group_username")
+    if link and manager:
+        try:
+            join_result = _run_async(manager.join_group(link))
+        except Exception as exc:
+            logger.warning("auto-join during approve failed: %s", exc)
+            join_result = {"status": "join_failed", "error": str(exc)}
+
+    db.update_pending_group_status(pending_id, "approved")
+    return jsonify({"success": True, "join": join_result, "group": item})
+
+
+@bp.route("/api/discovery/<int:pending_id>/dismiss", methods=["POST"])
+def api_discovery_dismiss(pending_id: int):
+    """Dismiss a pending group — it will be ignored in future scans."""
+    db = _db()
+    db.update_pending_group_status(pending_id, "dismissed")
+    return jsonify({"success": True})

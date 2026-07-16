@@ -33,6 +33,7 @@
     </a>
     <a class="nav-item" id="nav-groups" onclick="showSection('groups')">
       <span class="nav-icon">👥</span> Groups
+      <span class="nav-discovery-badge" id="discovery-nav-badge" style="display:none;"></span>
     </a>
     <a class="nav-item" id="nav-keywords" onclick="showSection('keywords')">
       <span class="nav-icon">🔑</span> Keywords
@@ -298,6 +299,19 @@
           <div id="group-search-results" class="search-results-deck">
             <div class="muted" style="font-size: 13px; text-align: center; padding: 20px 0;">Enter a keyword above to find public groups to join.</div>
           </div>
+        </div>
+      </div>
+
+      <!-- Right side: Auto-Discovered Groups Panel -->
+      <div class="discovery-auto-panel glass-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px;">
+          <h3 style="margin:0; color:#f59e0b; font-size:15px;">🔍 Auto-Discovered Groups</h3>
+          <button class="btn btn-ghost" onclick="loadDiscoveredGroups()" style="font-size:12px; padding:4px 10px;">↺ Refresh</button>
+        </div>
+        <p style="font-size:12px; color:#94a3b8; margin:0 0 14px 0; line-height:1.5;"
+          >Scanner runs every 5 min using your threat keywords + invite-link extraction from monitored messages.</p>
+        <div id="discovery-cards-list">
+          <div class="muted" style="font-size:13px; text-align:center; padding:30px 0;">Loading discoveries…</div>
         </div>
       </div>
     </div>

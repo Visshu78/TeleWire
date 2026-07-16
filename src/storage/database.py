@@ -190,6 +190,22 @@ CREATE TABLE IF NOT EXISTS telegram_accounts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_case_items_case_id ON case_items(case_id);
+
+CREATE TABLE IF NOT EXISTS pending_groups (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id        INTEGER,
+    group_name      TEXT,
+    group_username  TEXT,
+    member_count    INTEGER DEFAULT 0,
+    invite_link     TEXT,
+    source          TEXT NOT NULL,
+    source_keyword  TEXT,
+    discovered_at   TEXT NOT NULL,
+    status          TEXT DEFAULT 'pending'
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_grp_unique
+    ON pending_groups(group_id, group_name, invite_link);
 """
 
 # ---------------------------------------------------------------------------
@@ -317,6 +333,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 session_name    TEXT UNIQUE NOT NULL,
                 is_active       INTEGER DEFAULT 1,
                 status          TEXT DEFAULT 'disconnected'
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_groups (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id        INTEGER,
+                group_name      TEXT,
+                group_username  TEXT,
+                member_count    INTEGER DEFAULT 0,
+                invite_link     TEXT,
+                source          TEXT NOT NULL,
+                source_keyword  TEXT,
+                discovered_at   TEXT NOT NULL,
+                status          TEXT DEFAULT 'pending'
             );
         """)
     except Exception as exc:
@@ -1524,6 +1554,113 @@ class DatabaseHandler:
         except Exception as exc:
             logger.error("get_keyword_effectiveness failed: %s", exc)
             return []
+
+    # ── Group Discovery ────────────────────────────────────────────────────────
+
+    def save_pending_group(
+        self,
+        group_id: int | None,
+        group_name: str,
+        group_username: str | None,
+        member_count: int,
+        invite_link: str | None,
+        source: str,
+        source_keyword: str | None,
+        discovered_at: str,
+    ) -> bool:
+        """
+        Save a newly discovered group to pending_groups for analyst review.
+        Returns True if inserted (False if already exists).
+        Deduplicates on (group_id, group_name, invite_link).
+        """
+        sql = """
+            INSERT OR IGNORE INTO pending_groups
+                (group_id, group_name, group_username, member_count,
+                 invite_link, source, source_keyword, discovered_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                cur = conn.execute(
+                    sql,
+                    (group_id, group_name, group_username, member_count,
+                     invite_link, source, source_keyword, discovered_at),
+                )
+            return cur.rowcount > 0
+        except Exception as exc:
+            logger.error("save_pending_group failed: %s", exc)
+            return False
+
+    def get_pending_groups(self, status: str = "pending") -> list:
+        """Return pending discovered groups, newest first."""
+        sql = """
+            SELECT * FROM pending_groups
+            WHERE status = ?
+            ORDER BY discovered_at DESC
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                rows = conn.execute(sql, (status,)).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_pending_groups failed: %s", exc)
+            return []
+
+    def get_pending_groups_count(self) -> int:
+        """Return count of pending (unreviewed) discovered groups."""
+        try:
+            with get_db(self.db_path) as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM pending_groups WHERE status = 'pending'"
+                ).fetchone()
+            return row[0] if row else 0
+        except Exception as exc:
+            logger.error("get_pending_groups_count failed: %s", exc)
+            return 0
+
+    def update_pending_group_status(self, pending_id: int, status: str) -> None:
+        """Set status of a pending group to 'approved' or 'dismissed'."""
+        try:
+            with get_db(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE pending_groups SET status = ? WHERE id = ?",
+                    (status, pending_id),
+                )
+        except Exception as exc:
+            logger.error("update_pending_group_status failed: %s", exc)
+
+    def is_group_known(self, group_id: int | None, group_name: str | None,
+                       invite_link: str | None) -> bool:
+        """
+        Returns True if a group is already monitored OR already pending/approved.
+        Used to avoid re-queuing duplicates during discovery scans.
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                if group_id:
+                    row = conn.execute(
+                        "SELECT 1 FROM groups WHERE group_id = ? LIMIT 1", (group_id,)
+                    ).fetchone()
+                    if row:
+                        return True
+                    row = conn.execute(
+                        "SELECT 1 FROM pending_groups WHERE group_id = ? AND status != 'dismissed' LIMIT 1",
+                        (group_id,),
+                    ).fetchone()
+                    if row:
+                        return True
+                if invite_link:
+                    row = conn.execute(
+                        "SELECT 1 FROM pending_groups WHERE invite_link = ? AND status != 'dismissed' LIMIT 1",
+                        (invite_link,),
+                    ).fetchone()
+                    if row:
+                        return True
+            return False
+        except Exception as exc:
+            logger.error("is_group_known failed: %s", exc)
+            return False
+
 
 
 # ---------------------------------------------------------------------------

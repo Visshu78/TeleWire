@@ -62,6 +62,12 @@ class PipelineManager:
             listener.is_fetching = enabled
         logger.info("Global message fetching set to: %s", enabled)
 
+    def get_first_client(self):
+        """Return the first active TelegramClient, or None if none connected."""
+        for client in self.active_clients.values():
+            return client
+        return None
+
     async def start_all(self) -> None:
         """Connect all registered active accounts on startup."""
         accounts = self.db.get_telegram_accounts()

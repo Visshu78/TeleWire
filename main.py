@@ -430,6 +430,22 @@ async def main() -> None:
             log.warning("Could not backfill historical messages fetched_by column: %s", e)
     await pipeline_manager.start_all()
 
+    # Group Discovery Scanner (background asyncio task)
+    discovery_task = None
+    try:
+        from src.ingestion.discovery_service import GroupDiscoveryService
+        # Use the first active client from the pipeline manager
+        first_client = pipeline_manager.get_first_client()
+        if first_client:
+            scan_interval = config.get("discovery_scan_interval", 300)
+            discovery_svc = GroupDiscoveryService(first_client, db, scan_interval)
+            discovery_task = asyncio.create_task(discovery_svc.run())
+            log.info("GroupDiscoveryService started (interval=%ds)", scan_interval)
+        else:
+            log.warning("GroupDiscoveryService: no active Telethon client, scanner skipped.")
+    except Exception as exc:
+        log.warning("GroupDiscoveryService failed to start: %s", exc)
+
     # Flask dashboard (daemon thread)
     from src.dashboard.app import create_app
     flask_app = create_app(db, pipeline_manager.group_cache, pipeline_manager)
@@ -446,8 +462,15 @@ async def main() -> None:
     except KeyboardInterrupt:
         log.info("Shutting down ...")
     finally:
+        if discovery_task and not discovery_task.done():
+            discovery_task.cancel()
+            try:
+                await discovery_task
+            except asyncio.CancelledError:
+                pass
         await pipeline_manager.stop_all()
         log.info("Disconnected. Bye.")
+
 
 
 if __name__ == "__main__":

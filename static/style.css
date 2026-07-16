@@ -1252,7 +1252,7 @@ tr.row-cross td { background: rgba(120, 70, 0, 0.18); }
 /* ── Groups Layout & Discovery Panel ────────────────────────── */
 .groups-layout {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 340px 320px;
   gap: 20px;
   align-items: start;
 }
@@ -1439,4 +1439,128 @@ tr.row-cross td { background: rgba(120, 70, 0, 0.18); }
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 2px;
+}
+
+/* ── Group Discovery Auto-Panel ───────────────────────────── */
+.discovery-auto-panel {
+  padding: 18px;
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+.discovery-auto-panel::-webkit-scrollbar { width: 4px; }
+.discovery-auto-panel::-webkit-scrollbar-track { background: transparent; }
+.discovery-auto-panel::-webkit-scrollbar-thumb { background: rgba(245,158,11,0.3); border-radius: 2px; }
+
+/* Nav badge */
+.nav-discovery-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f59e0b;
+  color: #0f0f1a;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  animation: badge-pulse 2s ease-in-out infinite;
+  vertical-align: middle;
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.75; transform: scale(1.08); }
+}
+
+/* Discovery cards */
+.discovery-card {
+  background: rgba(245, 158, 11, 0.04);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  transition: border-color var(--transition), background var(--transition), transform var(--transition);
+  animation: slideIn 0.3s ease;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.discovery-card:hover {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.07);
+  transform: translateY(-1px);
+}
+.discovery-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fde68a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.discovery-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 6px 0;
+}
+.discovery-chip {
+  font-size: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: #94a3b8;
+}
+.discovery-chip.kw {
+  background: rgba(167,139,250,0.1);
+  border-color: rgba(167,139,250,0.25);
+  color: #c4b5fd;
+}
+.discovery-chip.inv {
+  background: rgba(52,211,153,0.08);
+  border-color: rgba(52,211,153,0.25);
+  color: #6ee7b7;
+}
+.discovery-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.btn-approve {
+  flex: 1;
+  background: rgba(52, 211, 153, 0.15);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #6ee7b7;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+.btn-approve:hover {
+  background: rgba(52, 211, 153, 0.28);
+  border-color: rgba(52, 211, 153, 0.6);
+}
+.btn-dismiss {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #64748b;
+  border-radius: 5px;
+  padding: 5px 9px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.btn-dismiss:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #f87171;
 }
