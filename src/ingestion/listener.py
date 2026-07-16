@@ -318,7 +318,7 @@ class TelegramListener:
                                 m["timestamp"]
                             )
                         # Dispatch alerts
-                        await loop.run_in_executor(self.executor, dispatch_alerts, m_db, score)
+                        await loop.run_in_executor(self.executor, dispatch_alerts, m_db, score, self.db)
 
                 if m.get("is_matched"):
                     logger.info(

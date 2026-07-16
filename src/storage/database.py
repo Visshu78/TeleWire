@@ -144,6 +144,11 @@ CREATE TABLE IF NOT EXISTS phone_enrichments (
     FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_entities_value ON entities(entity_value);
 CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
 
@@ -384,6 +389,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 is_valid         INTEGER DEFAULT 1,
                 last_enriched_at TEXT,
                 FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+            );
+        """)
+
+        # Create settings table if missing
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
             );
         """)
     except Exception as exc:
@@ -1095,6 +1108,54 @@ class DatabaseHandler:
             )
         except Exception as exc:
             logger.warning("Failed to enrich phone number %s: %s", number_str, exc)
+
+
+    def get_setting(self, key: str, default_val: str = None) -> str | None:
+        """Fetch setting value from database."""
+        try:
+            with get_db(self.db_path) as conn:
+                row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else default_val
+        except Exception as exc:
+            logger.error("get_setting failed for key %s: %s", key, exc)
+            return default_val
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Save setting value to database."""
+        try:
+            with get_db(self.db_path) as conn:
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, str(value))
+                )
+        except Exception as exc:
+            logger.error("set_setting failed for key %s: %s", key, exc)
+
+    def get_entity_relationships(self, fetched_by: str = None) -> list:
+        """
+        Retrieve all mappings between message senders, groups, and extracted entities.
+        Used to build coordinated entity threat maps.
+        """
+        sql = """
+            SELECT e.id AS entity_id, e.entity_type, e.entity_value,
+                   m.sender_name, m.sender_id, m.group_id, m.group_name
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE m.sender_name IS NOT NULL
+        """
+        params = []
+        if fetched_by:
+            sql += " AND m.fetched_by = ?"
+            params.append(fetched_by)
+            
+        try:
+            with get_db(self.db_path) as conn:
+                rows = conn.execute(sql, params).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_entity_relationships failed: %s", exc)
+            return []
 
 
     def get_wallet_enrichment(self, entity_value: str) -> dict | None:

@@ -397,7 +397,13 @@
   <section id="section-network" class="section">
     <div class="section-header">
       <h2>Network & Behavioral Intelligence</h2>
-      <button class="btn btn-ghost btn-sm" onclick="loadNetworkIntel()">↺ Refresh</button>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <select id="network-graph-mode" class="select-input" style="min-width: 240px;" onchange="loadNetworkIntel()">
+          <option value="forwards">🌐 Forward Topology Map</option>
+          <option value="entity_connection">🕸️ Coordinated Entity Connection Map</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="loadNetworkIntel()">↺ Refresh</button>
+      </div>
     </div>
     <p class="section-desc muted">Directed network graph of forwarded messages and hourly posting timezone cadence.</p>
 
@@ -451,6 +457,40 @@
       </div>
 
       <button class="btn btn-primary btn-sm" onclick="showAddAccountModal()">+ Add Telegram Account</button>
+    </div>
+
+    <!-- Alert Settings Control Panel -->
+    <div class="glass-card" style="padding: 20px; margin-bottom: 25px;">
+      <div style="margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+        <h3 style="margin: 0; color: #a78bfa; font-size: 16px;">🚨 Live Webhook Alerts & Alarms Settings</h3>
+      </div>
+      <form id="settings-alerts-form" onsubmit="saveAlertSettings(event)" style="display: flex; flex-direction: column; gap: 15px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;">
+          <div class="filter-field">
+            <label for="settings-threshold">Alert Threshold Score (0 - 100)</label>
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 5px;">
+              <input type="range" id="settings-threshold" min="0" max="100" value="70" style="flex: 1; min-width: auto; padding: 0;" oninput="document.getElementById('threshold-val').textContent = this.value"/>
+              <span id="threshold-val" style="font-weight: bold; width: 30px; text-align: right;">70</span>
+            </div>
+          </div>
+          <div class="filter-field">
+            <label for="settings-webhook">Alert Webhook URL</label>
+            <input type="url" id="settings-webhook" class="input-sm" placeholder="https://yourserver.com/alerts" style="margin-top: 5px;"/>
+          </div>
+          <div class="filter-field">
+            <label for="settings-tg-token">Telegram Bot Token</label>
+            <input type="password" id="settings-tg-token" class="input-sm" placeholder="123456789:ABCdefGhI..." style="margin-top: 5px;"/>
+          </div>
+          <div class="filter-field">
+            <label for="settings-tg-chat">Telegram Chat ID</label>
+            <input type="text" id="settings-tg-chat" class="input-sm" placeholder="-100123456789" style="margin-top: 5px;"/>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; margin-top: 5px;">
+          <button type="submit" class="btn btn-primary btn-sm">Save Alert Configuration</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="sendTestAlert()">🔔 Send Test Alert</button>
+        </div>
+      </form>
     </div>
 
     <div class="stats-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">

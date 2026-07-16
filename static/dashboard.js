@@ -1154,6 +1154,7 @@ async function loadHealth() {
         <td class="muted">${e(ev.details||"")}</td>
       </tr>`).join("");
     setLastRefresh();
+    loadAlertSettings();
   } catch (err) { console.error(err); }
 }
 
@@ -1167,9 +1168,28 @@ let cy = null;
 async function loadNetworkGraph() {
   try {
     const account = getGlobalAccountFilter();
-    const url = account ? `/api/network/graph?fetched_by=${encodeURIComponent(account)}` : "/api/network/graph";
+    const mode = document.getElementById("network-graph-mode")?.value || "forwards";
+    let url = `/api/network/graph?mode=${mode}`;
+    if (account) url += `&fetched_by=${encodeURIComponent(account)}`;
     const data = await fetch(url).then(r => r.json());
     
+    // Update legends dynamically
+    const legend = document.querySelector(".graph-legend");
+    if (legend) {
+      if (mode === "entity_connection") {
+        legend.innerHTML = `
+          <span class="legend-item"><span class="legend-dot" style="background:#8b5cf6;"></span> Actor / Sender</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#06b6d4;"></span> Monitored Group</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#fbbf24;"></span> Extracted Entity (IOC)</span>
+        `;
+      } else {
+        legend.innerHTML = `
+          <span class="legend-item"><span class="legend-dot source-dot"></span> Forward Source Channel</span>
+          <span class="legend-item"><span class="legend-dot target-dot"></span> Ingested Group</span>
+        `;
+      }
+    }
+
     // Initialize Cytoscape.js
     cy = cytoscape({
       container: document.getElementById('cy'),
@@ -1179,14 +1199,22 @@ async function loadNetworkGraph() {
           selector: 'node',
           style: {
             'background-color': function(ele) {
-              return ele.data('type') === 'source' ? '#f43f5e' : '#06b6d4';
+              const t = ele.data('type');
+              if (t === 'actor') return '#8b5cf6';
+              if (t === 'entity') return '#fbbf24';
+              if (t === 'source') return '#f43f5e';
+              return '#06b6d4';
             },
             'label': 'data(label)',
             'width': function(ele) {
+              const t = ele.data('type');
+              if (t === 'actor' || t === 'entity') return 22;
               const pr = ele.data('pagerank') || 0.0;
               return 15 + Math.min(30, pr * 400);
             },
             'height': function(ele) {
+              const t = ele.data('type');
+              if (t === 'actor' || t === 'entity') return 22;
               const pr = ele.data('pagerank') || 0.0;
               return 15 + Math.min(30, pr * 400);
             },
@@ -1260,38 +1288,68 @@ async function loadNetworkGraph() {
 
 function displayNodeDetails(data) {
   const panel = document.getElementById("network-node-details");
-  const typeText = data.type === 'source' ? 'Forward Source Channel' : 'Ingested Target Group';
-  const centralityScaled = data.pagerank ? (data.pagerank * 100).toFixed(2) + '%' : '0.00%';
   
-  panel.innerHTML = `
-    <div class="metric-row">
-      <span class="metric-label">Name</span>
-      <span class="metric-value" style="font-family: inherit;">${e(data.label)}</span>
-    </div>
-    <div class="metric-row">
-      <span class="metric-label">Type</span>
-      <span class="metric-value">${typeText}</span>
-    </div>
-    <div class="metric-row">
-      <span class="metric-label">In-degree (Forwards In)</span>
-      <span class="metric-value">${data.indegree}</span>
-    </div>
-    <div class="metric-row">
-      <span class="metric-label">Out-degree (Forwards Out)</span>
-      <span class="metric-value">${data.outdegree}</span>
-    </div>
-    <div class="metric-row" title="PageRank centrality represents the proportional probability of message forwards routing through this channel.">
-      <span class="metric-label">PageRank Centrality</span>
-      <span class="metric-value">${centralityScaled}</span>
-    </div>
-  `;
-  
-  // If it is a target group, load its hour cadence
-  if (data.type === 'target') {
-    const rawId = parseInt(data.id.substring(2));
-    loadCadenceChart(rawId);
-  } else {
+  if (data.type === 'actor') {
+    panel.innerHTML = `
+      <div class="metric-row">
+        <span class="metric-label">Actor Name</span>
+        <span class="metric-value" style="font-family: inherit;">${e(data.label)}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Type</span>
+        <span class="metric-value">Threat Actor / Sender</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Unique ID</span>
+        <span class="metric-value" style="font-family: monospace;">${e(data.id.substring(6))}</span>
+      </div>
+    `;
     loadCadenceChart();
+  } else if (data.type === 'entity') {
+    panel.innerHTML = `
+      <div class="metric-row">
+        <span class="metric-label">IOC Value</span>
+        <span class="metric-value" style="font-family: monospace; word-break: break-all;">${e(data.label)}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">IOC Type</span>
+        <span class="metric-value">${e(data.entity_type.toUpperCase().replace("CRYPTO_", ""))}</span>
+      </div>
+    `;
+    loadCadenceChart();
+  } else {
+    const typeText = data.type === 'source' ? 'Forward Source Channel' : 'Ingested Target Group';
+    const centralityScaled = data.pagerank ? (data.pagerank * 100).toFixed(2) + '%' : '0.00%';
+    
+    panel.innerHTML = `
+      <div class="metric-row">
+        <span class="metric-label">Name</span>
+        <span class="metric-value" style="font-family: inherit;">${e(data.label)}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Type</span>
+        <span class="metric-value">${typeText}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">In-degree (Forwards In)</span>
+        <span class="metric-value">${data.indegree}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Out-degree (Forwards Out)</span>
+        <span class="metric-value">${data.outdegree}</span>
+      </div>
+      <div class="metric-row" title="PageRank centrality represents the proportional probability of message forwards routing through this channel.">
+        <span class="metric-label">PageRank Centrality</span>
+        <span class="metric-value">${centralityScaled}</span>
+      </div>
+    `;
+    
+    if (data.type === 'target') {
+      const rawId = parseInt(data.id.substring(2));
+      loadCadenceChart(rawId);
+    } else {
+      loadCadenceChart();
+    }
   }
 }
 
@@ -2795,3 +2853,61 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(d => _updateDiscoveryBadge(d.count || 0))
     .catch(() => {});
 });
+
+// ── Settings & Integrations ────────────────────────────────────────────────
+async function loadAlertSettings() {
+  try {
+    const res = await fetch("/api/settings").then(r => r.json());
+    if (res) {
+      document.getElementById("settings-threshold").value = res.alert_threshold || "70";
+      document.getElementById("threshold-val").textContent = res.alert_threshold || "70";
+      document.getElementById("settings-webhook").value = res.alert_webhook_url || "";
+      document.getElementById("settings-tg-token").value = res.alert_telegram_bot_token || "";
+      document.getElementById("settings-tg-chat").value = res.alert_telegram_chat_id || "";
+    }
+  } catch (err) {
+    console.error("Failed to load alert settings:", err);
+  }
+}
+
+async function saveAlertSettings(event) {
+  if (event) event.preventDefault();
+  
+  const payload = {
+    alert_threshold: document.getElementById("settings-threshold").value,
+    alert_webhook_url: document.getElementById("settings-webhook").value.trim(),
+    alert_telegram_bot_token: document.getElementById("settings-tg-token").value.trim(),
+    alert_telegram_chat_id: document.getElementById("settings-tg-chat").value.trim()
+  };
+
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res && res.status === "success") {
+      showToast("💾 Alert integration settings saved successfully.", "success");
+    } else {
+      showToast(res.error || "Failed to save settings.", "error");
+    }
+  } catch (err) {
+    showToast("Network error while saving settings.", "error");
+  }
+}
+
+async function sendTestAlert() {
+  try {
+    showToast("🔔 Triggering test alert verification...", "success");
+    const res = await fetch("/api/settings/test-alert", { method: "POST" }).then(r => r.json());
+    if (res && res.status === "success") {
+      showToast("✅ Test alert dispatched successfully.", "success");
+    } else {
+      showToast(res.error || "Test alert failed.", "error");
+    }
+  } catch (err) {
+    showToast("Network error during test alert.", "error");
+  }
+}
+

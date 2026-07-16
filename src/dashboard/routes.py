@@ -163,9 +163,49 @@ def api_phone_enrichment(phone_value):
 @bp.route("/api/network/graph")
 def api_network_graph():
     fetched_by = request.args.get("fetched_by") or None
+    mode = request.args.get("mode") or "forwards"
     analyzer = NetworkAnalyzer(_db())
-    graph = analyzer.get_cytoscape_graph(fetched_by=fetched_by)
+    if mode == "entity_connection":
+        graph = analyzer.get_entity_connection_graph(fetched_by=fetched_by)
+    else:
+        graph = analyzer.get_cytoscape_graph(fetched_by=fetched_by)
     return jsonify(graph)
+
+
+@bp.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    db = _db()
+    if request.method == "POST":
+        data = request.get_json() or {}
+        db.set_setting("alert_threshold", data.get("alert_threshold", "70.0"))
+        db.set_setting("alert_webhook_url", data.get("alert_webhook_url", ""))
+        db.set_setting("alert_telegram_bot_token", data.get("alert_telegram_bot_token", ""))
+        db.set_setting("alert_telegram_chat_id", data.get("alert_telegram_chat_id", ""))
+        return jsonify({"status": "success", "message": "Alert settings saved successfully."})
+    else:
+        settings = {
+            "alert_threshold": db.get_setting("alert_threshold", "70.0"),
+            "alert_webhook_url": db.get_setting("alert_webhook_url", ""),
+            "alert_telegram_bot_token": db.get_setting("alert_telegram_bot_token", ""),
+            "alert_telegram_chat_id": db.get_setting("alert_telegram_chat_id", "")
+        }
+        return jsonify(settings)
+
+
+@bp.route("/api/settings/test-alert", methods=["POST"])
+def api_settings_test_alert():
+    db = _db()
+    from src.processing.scoring_service import dispatch_alerts
+    dummy_data = {
+        "message_id": 12345,
+        "group_id": 99999,
+        "group_name": "TeleWire Test Channel",
+        "sender_name": "Test Analyst Bot (Unique ID: 8888)",
+        "text": "🚨 CRITICAL ALARM INTEGRATION TEST: TeleWire threat detection system webhook and Telegram bot alarms verified successfully. Live connection check active.",
+        "threat_category": "Cybersecurity/Hacking"
+    }
+    dispatch_alerts(dummy_data, score=95.0, db=db)
+    return jsonify({"status": "success", "message": "Test alert dispatched to active channels."})
 
 
 @bp.route("/api/network/cadence")

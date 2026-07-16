@@ -226,7 +226,7 @@ async def backfill_gap(client, db, engine, backup, log) -> int:
                                 enriched["timestamp"]
                             )
                         # Dispatch alerts
-                        dispatch_alerts(m_db, score)
+                        dispatch_alerts(m_db, score, db)
             total += len(group_batch)
             log.info("Backfill: batch inserted %d messages (total new=%d) for [%s]", inserted_count, len(group_batch), group_name)
 

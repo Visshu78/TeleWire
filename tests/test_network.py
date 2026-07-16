@@ -112,6 +112,35 @@ class TestNetworkIntelligence(unittest.TestCase):
         g_901_node = next(n for n in nodes if n["data"]["id"] == "g_901")
         self.assertEqual(g_901_node["data"]["indegree"], 2)
 
+    def test_settings_get_set(self):
+        self.db.set_setting("test_key", "test_val")
+        self.assertEqual(self.db.get_setting("test_key"), "test_val")
+        self.assertEqual(self.db.get_setting("non_existent", "default"), "default")
+
+    def test_entity_connection_graph(self):
+        # Insert entity
+        self.db.save_entities_batch([("crypto_btc", "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")])
+        ent = self.db.get_entity_by_value("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
+        self.assertIsNotNone(ent)
+        
+        # Link entity to message 1
+        self.db.save_message_entities(1, [ent])
+        
+        analyzer = NetworkAnalyzer(self.db)
+        res = analyzer.get_entity_connection_graph()
+        self.assertIn("elements", res)
+        elements = res["elements"]
+        
+        nodes = [e for e in elements if "type" in e["data"]]
+        edges = [e for e in elements if "source" in e["data"]]
+        
+        node_types = [n["data"]["type"] for n in nodes]
+        self.assertIn("actor", node_types)
+        self.assertIn("group", node_types)
+        self.assertIn("entity", node_types)
+        self.assertGreater(len(edges), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

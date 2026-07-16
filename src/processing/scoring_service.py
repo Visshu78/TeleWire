@@ -47,13 +47,34 @@ def calculate_risk_score(data: dict) -> float:
     return min(100.0, score)
 
 
-def dispatch_alerts(data: dict, score: float) -> None:
+def dispatch_alerts(data: dict, score: float, db=None) -> None:
     """
     Dispatch real-time alerts if threat score crosses the threshold.
+    Queries database settings first, falling back to environment variables.
     """
+    threshold_str = None
+    webhook_url = None
+    tg_token = None
+    tg_chat_id = None
+    
+    if db:
+        threshold_str = db.get_setting("alert_threshold")
+        webhook_url = db.get_setting("alert_webhook_url")
+        tg_token = db.get_setting("alert_telegram_bot_token")
+        tg_chat_id = db.get_setting("alert_telegram_chat_id")
+        
+    if not threshold_str:
+        threshold_str = os.getenv("ALERT_THRESHOLD", "70.0")
+    if not webhook_url:
+        webhook_url = os.getenv("ALERT_WEBHOOK_URL")
+    if not tg_token:
+        tg_token = os.getenv("ALERT_TELEGRAM_BOT_TOKEN")
+    if not tg_chat_id:
+        tg_chat_id = os.getenv("ALERT_TELEGRAM_CHAT_ID")
+
     try:
-        threshold = float(os.getenv("ALERT_THRESHOLD", "70.0"))
-    except ValueError:
+        threshold = float(threshold_str)
+    except (ValueError, TypeError):
         threshold = 70.0
 
     if score < threshold:
@@ -62,7 +83,6 @@ def dispatch_alerts(data: dict, score: float) -> None:
     logger.warning("CRITICAL THREAT ALERT [Score %.1f]: Message %d (Group: %s) exceeded threshold!", score, data.get("message_id", 0), data.get("group_name", ""))
 
     # 1. Webhook Alert
-    webhook_url = os.getenv("ALERT_WEBHOOK_URL")
     if webhook_url:
         payload = {
             "event": "threat_alert",
@@ -84,8 +104,6 @@ def dispatch_alerts(data: dict, score: float) -> None:
             logger.error("Failed to dispatch Webhook alert: %s", exc)
 
     # 2. Telegram Bot Alert
-    tg_token = os.getenv("ALERT_TELEGRAM_BOT_TOKEN")
-    tg_chat_id = os.getenv("ALERT_TELEGRAM_CHAT_ID")
     if tg_token and tg_chat_id:
         alert_text = f"*⚠️ CRITICAL THREAT ALERT [Score {score:.1f}]*\n\n" \
                      f"*Group:* {data.get('group_name')} (`{data.get('group_id')}`)\n" \
@@ -106,3 +124,4 @@ def dispatch_alerts(data: dict, score: float) -> None:
             logger.info("Telegram Bot alert dispatched successfully to chat %s", tg_chat_id)
         except Exception as exc:
             logger.error("Failed to dispatch Telegram Bot alert: %s", exc)
+
