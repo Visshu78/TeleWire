@@ -18,3 +18,4 @@ Pillow>=10.0.0
 requests>=2.28.0
 numpy>=1.20.0
 deep-translator>=3.9.0
+phonenumbers>=8.13.0

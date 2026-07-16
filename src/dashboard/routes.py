@@ -136,6 +136,26 @@ def api_wallet_enrichment(address):
     return jsonify({"error": "No enrichment data available"}), 404
 
 
+@bp.route("/api/phones/<phone_value>/enrichment")
+def api_phone_enrichment(phone_value):
+    db = _db()
+    enrichment = db.get_phone_enrichment(phone_value)
+    if not enrichment:
+        # Try to resolve/enrich synchronously on demand if not in DB yet
+        try:
+            from src.storage.database import get_db
+            with get_db(db.db_path) as conn:
+                row = conn.execute("SELECT id FROM entities WHERE entity_value = ?", (phone_value.strip(),)).fetchone()
+            if row:
+                db._enrich_phone_number_obj(row["id"], phone_value)
+                enrichment = db.get_phone_enrichment(phone_value)
+        except Exception:
+            pass
+    if enrichment:
+        return jsonify(enrichment)
+    return jsonify({"error": "No enrichment data available"}), 404
+
+
 # ---------------------------------------------------------------------------
 # Network & Behavioral Intelligence API
 # ---------------------------------------------------------------------------

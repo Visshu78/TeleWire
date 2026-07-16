@@ -630,53 +630,7 @@ function openMessageDetail(index) {
   if (!entities.length) {
     listDiv.innerHTML = `<div class="muted" style="font-size:13px;">No entities extracted from this message.</div>`;
   } else {
-    listDiv.innerHTML = entities.map(ent => {
-      const isCrypto = ent.entity_type.startsWith("crypto_");
-      const isSanctioned = ent.is_sanctioned === 1;
-      const itemClass = isSanctioned ? "entity-item sanctioned-alert" : `entity-item entity-${ent.entity_type}`;
-      
-      let walletDetails = "";
-      if (isCrypto) {
-        const balance = ent.balance != null ? `${ent.balance.toFixed(4)}` : "Loading...";
-        const txCount = ent.tx_count != null ? ent.tx_count : "Loading...";
-        const source = ent.last_enriched_at ? `via ${ent.enrichment_source || 'Explorer'}` : "Pending background check";
-        
-        walletDetails = `
-          <div class="entity-wallet-details">
-            <div><strong>Balance:</strong> ${balance}</div>
-            <div><strong>Transactions:</strong> ${txCount}</div>
-            <div style="font-size:9px; margin-top:2px; opacity:0.6;">${source}</div>
-          </div>
-        `;
-        
-        // If it is pending, trigger enrichment fetch
-        if (ent.balance == null) {
-          setTimeout(() => fetchEnrichmentForWallet(ent.entity_value, ent.id), 1000);
-        }
-      }
-      
-      // Pivotable entity types get an IOC chip (clickable)
-      const pivotable = ["phone", "email", "url", "upi_id",
-                         "crypto_btc", "crypto_eth", "crypto_trx", "crypto_usdt"];
-      const isPivotable = pivotable.some(t => ent.entity_type.includes(t.split("_")[1] || t) 
-                            || ent.entity_type === t);
-      const valueHtml = isPivotable
-        ? `<button class="ioc-chip" onclick="showIocPivot('${e(ent.entity_type)}', '${e(ent.entity_value).replace(/'/g,"\\'")}')">
-             <span class="ioc-chip-icon">🔗</span>${e(ent.entity_value)}
-           </button>`
-        : `<div class="entity-item-value">${e(ent.entity_value)}</div>`;
-
-      return `
-        <div class="${itemClass}">
-          <div class="entity-item-header">
-            <span>${ent.entity_type.replace("crypto_", "")}</span>
-            ${isSanctioned ? '<span class="sanctioned-badge">⚠️ Sanctioned</span>' : ""}
-          </div>
-          ${valueHtml}
-          ${walletDetails}
-        </div>
-      `;
-    }).join("");
+    listDiv.innerHTML = entities.map(renderEntityItemMarkup).join("");
   }
   
   // Set current phash/index for similar image queries
@@ -750,11 +704,8 @@ async function fetchEnrichmentForWallet(address, entityId) {
     if (res && !res.error) {
       const activeModal = document.getElementById("message-detail-modal").classList.contains("active");
       if (activeModal) {
-        // Simple trick to refresh details on the screen
-        // Find if the message still selected is the same and update modal details
         const selectedIndex = window.currentMessages.findIndex(m => m.entities && m.entities.some(e => e.id === entityId));
         if (selectedIndex !== -1) {
-          // Update the in-memory payload
           const entIdx = window.currentMessages[selectedIndex].entities.findIndex(e => e.id === entityId);
           if (entIdx !== -1) {
             window.currentMessages[selectedIndex].entities[entIdx].balance = res.balance;
@@ -762,43 +713,102 @@ async function fetchEnrichmentForWallet(address, entityId) {
             window.currentMessages[selectedIndex].entities[entIdx].last_enriched_at = res.last_enriched_at;
             window.currentMessages[selectedIndex].entities[entIdx].enrichment_source = res.enrichment_source;
           }
-          // Refresh listDiv markup without reopening modal
           const entities = window.currentMessages[selectedIndex].entities;
           const listDiv = document.getElementById("modal-entities-list");
-          listDiv.innerHTML = entities.map(ent => {
-            const isCrypto = ent.entity_type.startsWith("crypto_");
-            const isSanctioned = ent.is_sanctioned === 1;
-            const itemClass = isSanctioned ? "entity-item sanctioned-alert" : `entity-item entity-${ent.entity_type}`;
-            
-            let walletDetails = "";
-            if (isCrypto) {
-              const balance = ent.balance != null ? `${ent.balance.toFixed(4)}` : "Loading...";
-              const txCount = ent.tx_count != null ? ent.tx_count : "Loading...";
-              const source = ent.last_enriched_at ? `via ${ent.enrichment_source || 'Explorer'}` : "Pending background check";
-              
-              walletDetails = `
-                <div class="entity-wallet-details">
-                  <div><strong>Balance:</strong> ${balance}</div>
-                  <div><strong>Transactions:</strong> ${txCount}</div>
-                  <div style="font-size:9px; margin-top:2px; opacity:0.6;">${source}</div>
-                </div>
-              `;
-            }
-            return `
-              <div class="${itemClass}">
-                <div class="entity-item-header">
-                  <span>${ent.entity_type.replace("crypto_", "")}</span>
-                  ${isSanctioned ? '<span class="sanctioned-badge">⚠️ Sanctioned</span>' : ""}
-                </div>
-                <div class="entity-item-value">${e(ent.entity_value)}</div>
-                ${walletDetails}
-              </div>
-            `;
-          }).join("");
+          listDiv.innerHTML = entities.map(renderEntityItemMarkup).join("");
         }
       }
     }
   } catch(e){}
+}
+
+async function fetchEnrichmentForPhone(phoneVal, entityId) {
+  try {
+    const res = await fetch(`/api/phones/${encodeURIComponent(phoneVal)}/enrichment`).then(r => r.json());
+    if (res && !res.error) {
+      const activeModal = document.getElementById("message-detail-modal").classList.contains("active");
+      if (activeModal) {
+        const selectedIndex = window.currentMessages.findIndex(m => m.entities && m.entities.some(e => e.id === entityId));
+        if (selectedIndex !== -1) {
+          const entIdx = window.currentMessages[selectedIndex].entities.findIndex(e => e.id === entityId);
+          if (entIdx !== -1) {
+            window.currentMessages[selectedIndex].entities[entIdx].country_name = res.country_name;
+            window.currentMessages[selectedIndex].entities[entIdx].location = res.location;
+            window.currentMessages[selectedIndex].entities[entIdx].carrier = res.carrier;
+            window.currentMessages[selectedIndex].entities[entIdx].is_valid = res.is_valid;
+            window.currentMessages[selectedIndex].entities[entIdx].phone_last_enriched = res.last_enriched_at;
+          }
+          const entities = window.currentMessages[selectedIndex].entities;
+          const listDiv = document.getElementById("modal-entities-list");
+          listDiv.innerHTML = entities.map(renderEntityItemMarkup).join("");
+        }
+      }
+    }
+  } catch(e){}
+}
+
+function renderEntityItemMarkup(ent) {
+  const isCrypto = ent.entity_type.startsWith("crypto_");
+  const isPhone = ent.entity_type === "phone_number";
+  const isSanctioned = ent.is_sanctioned === 1;
+  const itemClass = isSanctioned ? "entity-item sanctioned-alert" : `entity-item entity-${ent.entity_type}`;
+  
+  let detailsHtml = "";
+  if (isCrypto) {
+    const balance = ent.balance != null ? `${Number(ent.balance).toFixed(4)}` : "Loading...";
+    const txCount = ent.tx_count != null ? ent.tx_count : "Loading...";
+    const source = ent.last_enriched_at ? `via ${ent.enrichment_source || 'Explorer'}` : "Pending background check";
+    
+    detailsHtml = `
+      <div class="entity-wallet-details">
+        <div><strong>Balance:</strong> ${balance}</div>
+        <div><strong>Transactions:</strong> ${txCount}</div>
+        <div style="font-size:9px; margin-top:2px; opacity:0.6;">${source}</div>
+      </div>
+    `;
+    if (ent.balance == null) {
+      setTimeout(() => fetchEnrichmentForWallet(ent.entity_value, ent.id), 1000);
+    }
+  } else if (isPhone) {
+    const country = ent.country_name || "Unknown";
+    const location = ent.location || "Unknown Location";
+    const carrier = ent.carrier || "Unknown Carrier";
+    const isValid = ent.is_valid === 1 ? "Valid" : (ent.is_valid === 0 ? "Invalid" : "Unverified");
+    const validityColor = ent.is_valid === 1 ? "#34d399" : "#f87171";
+    
+    detailsHtml = `
+      <div class="entity-phone-details">
+        <div><strong>Country:</strong> ${country}</div>
+        <div><strong>Location:</strong> ${location}</div>
+        <div><strong>Carrier:</strong> ${carrier}</div>
+        <div><strong>Status:</strong> <span style="color: ${validityColor}; font-weight: bold;">${isValid}</span></div>
+      </div>
+    `;
+    if (!ent.country_name) {
+      setTimeout(() => fetchEnrichmentForPhone(ent.entity_value, ent.id), 1000);
+    }
+  }
+  
+  const pivotable = ["phone", "email", "url", "upi_id",
+                     "crypto_btc", "crypto_eth", "crypto_trx", "crypto_usdt", "phone_number"];
+  const isPivotable = pivotable.some(t => ent.entity_type.includes(t.split("_")[1] || t) 
+                        || ent.entity_type === t);
+  const valueHtml = isPivotable
+    ? `<button class="ioc-chip" onclick="showIocPivot('${e(ent.entity_type)}', '${e(ent.entity_value).replace(/'/g,"\\'")}')">
+         <span class="ioc-chip-icon">🔗</span>${e(ent.entity_value)}
+       </button>`
+    : `<div class="entity-item-value">${e(ent.entity_value)}</div>`;
+
+  return `
+    <div class="${itemClass}">
+      <div class="entity-item-header">
+        <span>${ent.entity_type.replace("crypto_", "").toUpperCase()}</span>
+        ${isSanctioned ? '<span class="sanctioned-badge">⚠️ Sanctioned</span>' : ""}
+      </div>
+      ${valueHtml}
+      ${detailsHtml}
+    </div>
+  `;
 }
 
 function e(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }

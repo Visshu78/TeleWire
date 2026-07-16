@@ -132,6 +132,18 @@ CREATE TABLE IF NOT EXISTS wallet_enrichments (
     FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS phone_enrichments (
+    entity_id        INTEGER PRIMARY KEY,
+    country_code     TEXT,
+    country_name     TEXT,
+    location         TEXT,
+    carrier          TEXT,
+    national_number  TEXT,
+    is_valid         INTEGER DEFAULT 1,
+    last_enriched_at TEXT,
+    FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_entities_value ON entities(entity_value);
 CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
 
@@ -359,6 +371,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 logger.info("DB migration: added context_text to pending_groups")
         except Exception as _e:
             pass
+
+        # Create phone_enrichments table if missing
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS phone_enrichments (
+                entity_id        INTEGER PRIMARY KEY,
+                country_code     TEXT,
+                country_name     TEXT,
+                location         TEXT,
+                carrier          TEXT,
+                national_number  TEXT,
+                is_valid         INTEGER DEFAULT 1,
+                last_enriched_at TEXT,
+                FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+            );
+        """)
     except Exception as exc:
         logger.error("Failed to execute phase 5 / 6 migrations: %s", exc)
 
@@ -918,6 +945,8 @@ class DatabaseHandler:
                             "type": etype,
                             "is_sanctioned": is_sanctioned
                         })
+                    elif etype == "phone_number":
+                        self._enrich_phone_number_conn(conn, entity_id, evalue)
             return crypto_to_enrich
         except Exception as exc:
             logger.error("save_message_entities failed: %s", exc)
@@ -970,6 +999,104 @@ class DatabaseHandler:
         except Exception as exc:
             logger.error("upsert_wallet_enrichment failed: %s", exc)
 
+    def upsert_phone_enrichment(self, entity_id: int, data: dict) -> None:
+        """Upsert phone country, location, carrier details."""
+        sql = """
+            INSERT INTO phone_enrichments (
+                entity_id, country_code, country_name, location,
+                carrier, national_number, is_valid, last_enriched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(entity_id) DO UPDATE SET
+                country_code = excluded.country_code,
+                country_name = excluded.country_name,
+                location = excluded.location,
+                carrier = excluded.carrier,
+                national_number = excluded.national_number,
+                is_valid = excluded.is_valid,
+                last_enriched_at = excluded.last_enriched_at
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            with get_db(self.db_path) as conn:
+                conn.execute(
+                    sql,
+                    (entity_id, data.get("country_code"), data.get("country_name"),
+                     data.get("location"), data.get("carrier"), data.get("national_number"),
+                     data.get("is_valid", 1), now)
+                )
+        except Exception as exc:
+            logger.error("upsert_phone_enrichment failed: %s", exc)
+
+    def get_phone_enrichment(self, entity_value: str) -> dict | None:
+        """Retrieve phone enrichment details by number value."""
+        sql = """
+            SELECT p.*, e.entity_value, e.entity_type
+            FROM phone_enrichments p
+            JOIN entities e ON p.entity_id = e.id
+            WHERE e.entity_value = ?
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                row = conn.execute(sql, (entity_value.strip(),)).fetchone()
+            return dict(row) if row else None
+        except Exception as exc:
+            logger.error("get_phone_enrichment failed: %s", exc)
+            return None
+
+    def _enrich_phone_number_obj(self, entity_id: int, number_str: str) -> None:
+        """Perform offline lookup using phonenumbers package and save to DB."""
+        try:
+            with get_db(self.db_path) as conn:
+                self._enrich_phone_number_conn(conn, entity_id, number_str)
+        except Exception as exc:
+            logger.warning("Failed to enrich phone number %s: %s", number_str, exc)
+
+    def _enrich_phone_number_conn(self, conn: sqlite3.Connection, entity_id: int, number_str: str) -> None:
+        """Perform offline lookup using phonenumbers package and save to DB using active connection."""
+        try:
+            import phonenumbers
+            from phonenumbers import geocoder, carrier, phonenumberutil
+            
+            # Parse number. India is default region if missing '+' prefix
+            parsed = phonenumbers.parse(number_str, "IN")
+            is_valid = 1 if phonenumbers.is_valid_number(parsed) else 0
+            
+            country_code = str(parsed.country_code) if parsed.country_code else None
+            national_number = str(parsed.national_number) if parsed.national_number else None
+            
+            region_code = phonenumberutil.region_code_for_number(parsed)
+            country_name = region_code
+            
+            location = geocoder.description_for_number(parsed, "en") or ""
+            if location:
+                country_name = location.split(",")[-1].strip()
+                
+            carrier_name = carrier.name_for_number(parsed, "en") or ""
+            
+            now = datetime.now(timezone.utc).isoformat()
+            sql = """
+                INSERT INTO phone_enrichments (
+                    entity_id, country_code, country_name, location,
+                    carrier, national_number, is_valid, last_enriched_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(entity_id) DO UPDATE SET
+                    country_code = excluded.country_code,
+                    country_name = excluded.country_name,
+                    location = excluded.location,
+                    carrier = excluded.carrier,
+                    national_number = excluded.national_number,
+                    is_valid = excluded.is_valid,
+                    last_enriched_at = excluded.last_enriched_at
+            """
+            conn.execute(
+                sql,
+                (entity_id, country_code, country_name, location,
+                 carrier_name, national_number, is_valid, now)
+            )
+        except Exception as exc:
+            logger.warning("Failed to enrich phone number %s: %s", number_str, exc)
+
+
     def get_wallet_enrichment(self, entity_value: str) -> dict | None:
         """Retrieve wallet enrichment details by address value."""
         sql = """
@@ -990,10 +1117,12 @@ class DatabaseHandler:
         """Get all entities associated with a message."""
         sql = """
             SELECT e.id, e.entity_type, e.entity_value, me.position_in_text,
-                   w.balance, w.tx_count, w.is_sanctioned, w.last_enriched_at
+                   w.balance, w.tx_count, w.is_sanctioned, w.last_enriched_at,
+                   p.country_name, p.location, p.carrier, p.is_valid, p.last_enriched_at AS phone_last_enriched
             FROM message_entities me
             JOIN entities e ON me.entity_id = e.id
             LEFT JOIN wallet_enrichments w ON e.id = w.entity_id
+            LEFT JOIN phone_enrichments p ON e.id = p.entity_id
             WHERE me.message_id = ?
         """
         try:

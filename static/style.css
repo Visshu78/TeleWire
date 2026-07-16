@@ -640,7 +640,15 @@ tr.row-cross td { background: rgba(120, 70, 0, 0.18); }
   font-size: 11px;
   color: #cbd5e1;
 }
+.entity-phone-details {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+  font-size: 11px;
+  color: #cbd5e1;
+}
 .sanctioned-alert {
+
   background: rgba(239, 68, 68, 0.15) !important;
   border-left-color: #ef4444 !important;
 }
