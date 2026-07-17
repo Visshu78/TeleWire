@@ -433,14 +433,23 @@ Stores auto-discovered groups pending approval.
 *   **What it is:** Sender risk tracking dashboard.
 *   **Under the Hood:** Aggregates message counts and risks into Low, Medium, High, and Critical Risk Tiers. Displays temporal activity histograms to infer the actor's timezone.
 
-### 📁 10. Case Files
+### 🗺️ 10. Map Intel
+*   **What it is:** Interactive threat geolocation coordinate mapping dashboard.
+*   **Under the Hood:** Integrates Leaflet.js rendering dark/light CartoDB Positron maps and high-resolution Esri Satellite imagery layers. Calls `/api/map/threat-points` to load geocoded phone locations (cached offline via county centroids) and IP addresses. Displays color-coded risk markers (Red: Critical, Orange: High, Yellow: IPs, Green: Phones) with hover coordinate tooltips and popups allowing pivot-searching.
+
+### 📄 11. PDF Dossier Exporter
+*   **What it is:** One-click threat actor profiling printable PDF dossier document generator.
+*   **Under the Hood:** Retreives actor profile stats, timezone activity buckets, threat specialties charts, and shared wallet tables. Feeds data into a print-optimized HTML layout (/api/actors/export-dossier) and triggers `window.print()` to generate dossier sheets.
+
+### 📁 12. Case Files
 *   **What it is:** Evidence compiler workspace.
 *   **Under the Hood:** Links target elements (messages, wallets, actor handles) to Case IDs. Generates formatted Executive Intelligence Brief Markdown reports.
 
-### 🩺 11. Pipeline Health
+### 🩺 13. Pipeline Health
 *   **What it is:** System health status monitor.
 *   **Under the Hood:** Displays disconnect metrics, daily downtime lengths, and details from the `pipeline_events` log.
 *   **Ingestion Control Center:** Analyst interface to register, start, stop, or delete up to 5 concurrent Telegram sessions. Facilitates SMS OTP connections.
+
 
 ---
 
