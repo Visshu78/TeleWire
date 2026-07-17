@@ -144,7 +144,11 @@ class GeocodingService:
         
         lat, lng, country, city = None, None, None, None
         try:
-            parsed = phonenumbers.parse(phone_val)
+            try:
+                parsed = phonenumbers.parse(phone_val)
+            except Exception:
+                # If parsing fails without country code, fallback to IN (India) as default region
+                parsed = phonenumbers.parse(phone_val, "IN")
             country = geocoder.country_name_for_number(parsed, "en")
             city = geocoder.description_for_number(parsed, "en")
             if city == country:
