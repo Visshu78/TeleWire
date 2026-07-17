@@ -1777,7 +1777,7 @@ async function selectActor(idx) {
     renderActorTimezoneChart(data.messages);
     
     // Fetch behavior fingerprint
-    const behavior = await fetch(`/api/actors/${encodeURIComponent(a.sender_id)}/behavior`).then(r => r.json());
+    const behavior = await fetch(`/api/actors/behavior?id=${encodeURIComponent(a.sender_id)}`).then(r => r.json());
     renderActorBehaviorFingerprint(behavior);
   } catch (e) {
     console.error("Failed to load actor messages:", e);
@@ -1883,7 +1883,7 @@ async function pullActorDossier() {
 
   try {
     const actorName = encodeURIComponent(window.selectedActorId);
-    const url = `/api/actors/${actorName}/dossier?name=${actorName}`;
+    const url = `/api/actors/dossier?id=${actorName}&name=${actorName}`;
     const data = await fetch(url).then(r => r.json());
     loading.style.display = "none";
     renderActorDossier(data);

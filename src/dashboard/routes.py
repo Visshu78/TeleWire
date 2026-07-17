@@ -299,9 +299,12 @@ def api_high_risk_actors():
     return jsonify(actors)
 
 
-@bp.route("/api/actors/<actor_id>/behavior")
-def api_actor_behavior(actor_id):
+@bp.route("/api/actors/behavior")
+def api_actor_behavior():
     """Retrieve behavioral analysis and fingerprinting stats for a specific actor."""
+    actor_id = request.args.get("id", "").strip()
+    if not actor_id:
+        return jsonify({"error": "Missing actor id"}), 400
     db = _db()
     behavior = db.get_actor_behavior(actor_id)
     return jsonify(behavior)
@@ -382,15 +385,19 @@ async def _fetch_telegram_user_profile(client, sender_id: str) -> dict:
     return profile
 
 
-@bp.route("/api/actors/<actor_id>/dossier")
-def api_actor_dossier(actor_id):
+@bp.route("/api/actors/dossier")
+def api_actor_dossier():
     """
     On-demand OSINT dossier for a specific actor.
     Combines Telegram GetFullUserRequest profile with all DB-stored IOC intelligence.
     Only runs when explicitly called by the analyst.
     """
+    actor_id = request.args.get("id", "").strip()
+    if not actor_id:
+        return jsonify({"error": "Missing actor id"}), 400
     db = _db()
     sender_name = request.args.get("name", "")
+
 
     # Step 1: Pull all internal DB intel
     db_intel = db.get_actor_dossier_db(sender_id=actor_id, sender_name=sender_name)
