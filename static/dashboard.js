@@ -1728,13 +1728,21 @@ async function loadThreatMap() {
       maxZoom: 18
     });
 
+    const satelliteLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Labels &copy; Esri',
+      maxZoom: 18
+    });
+
+    // Combine satellite tiles and transparent labels into a single Satellite View layer group
+    const satelliteView = L.layerGroup([satelliteTiles, satelliteLabels]);
+
     // Add light tiles by default
     lightTiles.addTo(threatMap);
 
     // Setup base map layer control selector switcher
     const baseMaps = {
       "Light View": lightTiles,
-      "Satellite View": satelliteTiles
+      "Satellite View": satelliteView
     };
     L.control.layers(baseMaps, null, { position: 'topright' }).addTo(threatMap);
   }
@@ -1809,6 +1817,7 @@ async function loadThreatMap() {
 
       const marker = L.marker([pt.lat, pt.lng], { icon: customIcon })
         .bindPopup(popupHtml)
+        .bindTooltip(`Coordinates: ${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}`, { permanent: false, direction: 'top' })
         .addTo(threatMap);
         
       threatMarkers.push(marker);
