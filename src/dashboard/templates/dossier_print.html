@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Threat Actor Dossier - {{ actor_id }}</title>
+  <!-- Load Chart.js for rendering graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @media print {
+      body {
+        background: #fff !important;
+        color: #000 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .page-break {
+        page-break-before: always;
+      }
+      .dossier-card {
+        border: 1px solid #ddd !important;
+        box-shadow: none !important;
+      }
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #333;
+      background: #f8fafc;
+      margin: 0;
+      padding: 30px;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 40px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+    
+    .header {
+      border-bottom: 2px solid #be123c;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+      color: #9f1239;
+    }
+    
+    .header .tag {
+      background: #ffe4e6;
+      color: #9f1239;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: bold;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    
+    .section-title {
+      font-size: 14px;
+      color: #9f1239;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 6px;
+      margin-top: 30px;
+      margin-bottom: 15px;
+    }
+    
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px dashed #f1f5f9;
+      font-size: 13px;
+    }
+    
+    .metric-label {
+      color: #64748b;
+    }
+    
+    .metric-value {
+      font-weight: 500;
+      color: #0f172a;
+    }
+    
+    .bio-box {
+      background: #f8fafc;
+      border-left: 4px solid #be123c;
+      padding: 12px 15px;
+      font-size: 13px;
+      color: #334155;
+      margin-bottom: 20px;
+      white-space: pre-wrap;
+    }
+    
+    .chart-container {
+      height: 180px;
+      position: relative;
+      margin-bottom: 15px;
+    }
+    
+    .tag-chip {
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin-right: 4px;
+      margin-bottom: 4px;
+      display: inline-block;
+      font-family: monospace;
+      border: 1px solid #cbd5e1;
+    }
+    
+    .crypto-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .crypto-value {
+      font-family: monospace;
+      color: #0f172a;
+    }
+    
+    .alert-banner {
+      background: #fffbeb;
+      border: 1px solid #fef3c7;
+      color: #b45309;
+      padding: 10px 15px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="no-print" style="max-width: 800px; margin: 0 auto 15px auto; display: flex; justify-content: space-between;">
+    <span style="font-size:12px; color:#64748b;">💡 Tip: Set your destination to <b>Save as PDF</b> and enable <b>Background graphics</b> in the print settings.</span>
+    <button onclick="window.print()" style="background:#be123c; color:#fff; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">Print / Save PDF</button>
+  </div>
+
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1>THREAT ACTOR DOSSIER</h1>
+        <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Resolved: {{ resolved_at }} | TeleWire Threat Intelligence</div>
+      </div>
+      <span class="tag">{{ risk_tier }} Risk</span>
+    </div>
+    
+    <!-- Telegram Profile Details -->
+    <div class="section-title">Telegram Profile (Native Registry)</div>
+    <div class="grid-2">
+      <div>
+        <div class="metric-row"><span class="metric-label">Username</span><span class="metric-value">{{ username or '—' }}</span></div>
+        <div class="metric-row"><span class="metric-label">User ID</span><span class="metric-value" style="font-family:monospace;">{{ tg_user_id or '—' }}</span></div>
+        <div class="metric-row"><span class="metric-label">Resolved Phone</span><span class="metric-value" style="font-family:monospace; color:#15803d;">{{ phone or 'Hidden / Not Resolved' }}</span></div>
+      </div>
+      <div>
+        <div class="metric-row"><span class="metric-label">Full Name</span><span class="metric-value">{{ fullname or '—' }}</span></div>
+        <div class="metric-row"><span class="metric-label">Status</span><span class="metric-value">{{ status or '—' }}</span></div>
+        <div class="metric-row"><span class="metric-label">Account Type</span><span class="metric-value">{{ acct_flags or '—' }}</span></div>
+      </div>
+    </div>
+    
+    {% if bio %}
+    <div style="margin-top: 15px;">
+      <div style="font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 4px; font-weight: bold;">Bio / About Text</div>
+      <div class="bio-box">{{ bio }}</div>
+    </div>
+    {% endif %}
+
+    {% if privacy_note %}
+    <div class="alert-banner">
+      <b>Privacy Restriction:</b> {{ privacy_note }}
+    </div>
+    {% endif %}
+
+    <!-- Behavioral Profile -->
+    <div class="section-title">Circadian & Behavioral Fingerprint</div>
+    <div class="grid-2">
+      <div>
+        <div class="metric-row"><span class="metric-label">Operational Mode</span><span class="metric-value">{{ op_mode }}</span></div>
+        <div class="metric-row"><span class="metric-label">Groups Infiltrated</span><span class="metric-value">{{ group_count }}</span></div>
+        <div class="metric-row"><span class="metric-label">Urgency Language Bias</span><span class="metric-value">{{ urgency_bias }}</span></div>
+        <div class="metric-row"><span class="metric-label">Media Attachment Ratio</span><span class="metric-value">{{ media_ratio }}</span></div>
+      </div>
+      <div style="font-size:12px; color:#475569; background:#f8fafc; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; align-items:center; justify-content:center; text-align:center;">
+        <div>
+          <div style="font-weight:bold; color:#0f172a; margin-bottom:4px;">Estimated Operator Location</div>
+          <div style="font-style:italic; font-size:13px; color:#be123c;">{{ timezone_inference }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid-2" style="margin-top: 25px;">
+      <div>
+        <div style="font-size: 11px; font-weight:bold; color: #64748b; margin-bottom: 8px; text-transform: uppercase;">Hourly Posting Activity</div>
+        <div class="chart-container">
+          <canvas id="timezoneChart"></canvas>
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 11px; font-weight:bold; color: #64748b; margin-bottom: 8px; text-transform: uppercase;">Threat Specialization</div>
+        <div class="chart-container">
+          <canvas id="specialtiesChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- Shared IOC Intelligence -->
+    <div class="section-title" style="margin-top: 30px;">Extracted Indicators of Compromise (IOCs)</div>
+    
+    {% if phones_posted %}
+    <div style="margin-bottom: 15px;">
+      <div style="font-size: 11px; font-weight:bold; color: #64748b; margin-bottom: 6px; text-transform: uppercase;">📞 Shared Phone Numbers</div>
+      <div>
+        {% for p in phones_posted %}
+        <span class="tag-chip">{{ p }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if upi_posted %}
+    <div style="margin-bottom: 15px;">
+      <div style="font-size: 11px; font-weight:bold; color: #64748b; margin-bottom: 6px; text-transform: uppercase;">💳 Shared UPI IDs</div>
+      <div>
+        {% for u in upi_posted %}
+        <span class="tag-chip">{{ u }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if emails_posted %}
+    <div style="margin-bottom: 15px;">
+      <div style="font-size: 11px; font-weight:bold; color: #64748b; margin-bottom: 6px; text-transform: uppercase;">📧 Shared Emails</div>
+      <div>
+        {% for em in emails_posted %}
+        <span class="tag-chip">{{ em }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if crypto_posted %}
+    <div style="margin-bottom: 15px;">
+      <div style="font-size: 11px; font-weight:bold; color: #64748b; margin-bottom: 6px; text-transform: uppercase;">₿ Shared Crypto Wallets</div>
+      <div>
+        {% for w in crypto_posted %}
+        <div class="crypto-item">
+          <div>
+            <b style="color:#9f1239;">{{ w.entity_type.upper().replace('CRYPTO_','') }}</b> &nbsp;
+            <span class="crypto-value">{{ w.entity_value }}</span>
+          </div>
+          {% if w.is_sanctioned %}
+          <span style="color:#ef4444; font-weight:bold; font-size:11px;">⚠️ SANCTIONED</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Infiltrated Groups -->
+    <div class="section-title">Infiltrated Target Groups</div>
+    <div>
+      {% if groups %}
+        {% for g in groups %}
+        <span class="tag-chip" style="color:#0369a1; background:#f0f9ff; border-color:#bae6fd;">{{ g.group_name }}</span>
+        {% endfor %}
+      {% else %}
+        <div style="font-size:12px; color:#64748b;">No group overlap recorded in DB.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    // Initialize timezone hourly chart
+    const tzCtx = document.getElementById('timezoneChart').getContext('2d');
+    const hourData = {{ hour_distribution | tojson }};
+    new Chart(tzCtx, {
+      type: 'bar',
+      data: {
+        labels: Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`),
+        datasets: [{
+          label: 'Messages',
+          data: hourData,
+          backgroundColor: 'rgba(159, 18, 57, 0.5)',
+          borderColor: '#9f1239',
+          borderWidth: 1,
+          borderRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { font: { size: 8 } } },
+          y: { ticks: { font: { size: 8 } } }
+        }
+      }
+    });
+
+    // Initialize specialties threat chart
+    const specCtx = document.getElementById('specialtiesChart').getContext('2d');
+    const categoriesMap = {{ categories | tojson }};
+    const labels = Object.keys(categoriesMap);
+    const values = Object.values(categoriesMap);
+    
+    if (labels.length === 0) {
+      labels.push('Unclassified');
+      values.push(1);
+    }
+
+    new Chart(specCtx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: values,
+          backgroundColor: [
+            'rgba(59, 130, 246, 0.5)',
+            'rgba(239, 68, 68, 0.5)',
+            'rgba(16, 185, 129, 0.5)',
+            'rgba(251, 191, 36, 0.5)',
+            'rgba(236, 72, 153, 0.5)',
+            'rgba(107, 114, 128, 0.5)'
+          ],
+          borderColor: [
+            '#3b82f6', '#ef4444', '#10b981', '#fbbf24', '#ec4899', '#6b7280'
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { font: { size: 8 }, boxWidth: 8 }
+          }
+        }
+      }
+    });
+
+    // Auto trigger print after charts render (500ms delay)
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 700);
+    };
+  </script>
+</body>
+</html>

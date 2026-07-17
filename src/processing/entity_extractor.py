@@ -206,8 +206,11 @@ class EntityExtractor:
             "url": re.compile(r"\bhttps?://[a-zA-Z0-9\-\.\/\?\&\=\#\_\%\~\+]+"),
             "iban": re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),
             # India phone number regex
-            "phone_number": re.compile(r"\b(?:\+91[\-\s]?)?[6-9]\d{9}\b")
+            "phone_number": re.compile(r"\b(?:\+91[\-\s]?)?[6-9]\d{9}\b"),
+            # IPv4 address regex
+            "ip_address": re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b")
         }
+
 
     def extract(self, text: str) -> list:
         """
@@ -247,6 +250,12 @@ class EntityExtractor:
                     is_valid = verify_btc_base58(value) # Tron uses the same base58check algorithm
                 elif label == "crypto_ton":
                     is_valid = verify_ton_address(value)
+                elif label == "ip_address":
+                    try:
+                        parts = [int(p) for p in value.split(".")]
+                        is_valid = all(0 <= p <= 255 for p in parts)
+                    except Exception:
+                        is_valid = False
                     
                 if not is_valid:
                     continue

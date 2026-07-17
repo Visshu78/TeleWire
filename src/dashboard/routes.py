@@ -442,6 +442,148 @@ def api_actor_dossier():
     })
 
 
+@bp.route("/api/map/threat-points")
+def api_map_threat_points():
+    """
+    Returns all geocoded phone and IP entities found in threat messages.
+    Queries the database and resolves coordinates on-demand (utilizing local geocode cache).
+    """
+    from src.processing.geocoding_service import GeocodingService
+    db = _db()
+    geocoder = GeocodingService(db)
+    
+    sql_entities = """
+        SELECT DISTINCT e.id, e.entity_type, e.entity_value, m.sender_name, m.group_name, m.risk_score
+        FROM message_entities me
+        JOIN entities e ON me.entity_id = e.id
+        JOIN messages m ON me.message_id = m.id
+        WHERE e.entity_type IN ('phone', 'ip_address')
+    """
+    
+    points = []
+    try:
+        with get_db(db.db_path) as conn:
+            rows = conn.execute(sql_entities).fetchall()
+            
+        for r in rows:
+            eid = r["id"]
+            etype = r["entity_type"]
+            evalue = r["entity_value"]
+            
+            coords = geocoder.geocode_entity(eid, etype, evalue)
+            if coords:
+                lat, lng, country, city = coords
+                label = f"{country or 'Unknown'} ({city or 'Unknown'})" if city or country else evalue
+                
+                risk = r["risk_score"] or 0.0
+                threat_level = "Low"
+                if risk >= 80:
+                    threat_level = "Critical"
+                elif risk >= 60:
+                    threat_level = "High"
+                elif risk >= 30:
+                    threat_level = "Medium"
+                    
+                points.append({
+                    "id": eid,
+                    "type": etype,
+                    "value": evalue,
+                    "lat": lat,
+                    "lng": lng,
+                    "label": label,
+                    "sender_name": r["sender_name"],
+                    "group_name": r["group_name"],
+                    "threat_level": threat_level,
+                    "risk_score": risk
+                })
+    except Exception as exc:
+        logger.error("Failed to compile threat points: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+        
+    return jsonify(points)
+
+
+@bp.route("/api/actors/export-dossier")
+def api_export_actor_dossier():
+    """
+    Renders a print-ready, clean white HTML page of the threat actor's dossier.
+    Combines live Telegram metadata and SQLite threat intelligence with dynamic Chart.js rendering.
+    """
+    actor_id = request.args.get("id", "").strip()
+    sender_name = request.args.get("name", "").strip()
+    if not actor_id:
+        return "Missing threat actor id parameter", 400
+
+    db = _db()
+    behavior = db.get_actor_behavior(sender_name if sender_name else actor_id)
+    db_intel = db.get_actor_dossier_db(sender_id=actor_id, sender_name=sender_name)
+
+    tg_profile = {}
+    try:
+        manager = current_app.config.get("PIPELINE_MANAGER")
+        client = manager.get_first_client() if manager else None
+        if client and client.is_connected():
+            tg_profile = _run_async(_fetch_telegram_user_profile(client, actor_id))
+        else:
+            tg_profile = {"privacy_note": "Telegram client not connected — live profile unavailable."}
+    except Exception as exc:
+        tg_profile = {"privacy_note": f"Live profile lookup error: {exc}"}
+
+    fullname = [tg_profile.get("first_name"), tg_profile.get("last_name")]
+    fullname = " ".join([f for f in fullname if f]) or sender_name or actor_id
+
+    acct_flags = []
+    if tg_profile.get("is_bot"):
+        acct_flags.append("Bot")
+    else:
+        acct_flags.append("Human")
+    if tg_profile.get("is_verified"):
+        acct_flags.append("Verified")
+    if tg_profile.get("is_restricted"):
+        acct_flags.append("Restricted")
+    acct_flags_str = " · ".join(acct_flags)
+
+    sql_avg_risk = "SELECT risk_tier FROM sender_profiles WHERE sender_id = ?"
+    risk_tier = "Medium"
+    try:
+        with get_db(db.db_path) as conn:
+            row = conn.execute(sql_avg_risk, (actor_id,)).fetchone()
+            if row:
+                risk_tier = row["risk_tier"]
+    except Exception:
+        pass
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    return render_template(
+        "dossier_print.html",
+        actor_id=actor_id,
+        resolved_at=now_str,
+        risk_tier=risk_tier,
+        username=tg_profile.get("username"),
+        tg_user_id=tg_profile.get("tg_user_id"),
+        phone=tg_profile.get("phone"),
+        fullname=fullname,
+        status=tg_profile.get("status"),
+        acct_flags=acct_flags_str,
+        bio=tg_profile.get("bio"),
+        privacy_note=tg_profile.get("privacy_note"),
+        op_mode=behavior.get("op_mode", "Human Operator"),
+        group_count=behavior.get("group_count", 0),
+        urgency_bias=f"{behavior.get('urgency_bias', 0.0):.1f}%",
+        media_ratio=f"{behavior.get('media_ratio', 0.0):.1f}%",
+        timezone_inference=behavior.get("timezone_inference", "Unknown"),
+        hour_distribution=behavior.get("hour_distribution", [0]*24),
+        categories=behavior.get("categories", {}),
+        phones_posted=db_intel.get("phones_posted", []),
+        upi_posted=db_intel.get("upi_posted", []),
+        emails_posted=db_intel.get("emails_posted", []),
+        crypto_posted=db_intel.get("crypto_posted", []),
+        groups=db_intel.get("groups", [])
+    )
+
+
+
 # ---------------------------------------------------------------------------
 # Stats API
 # ---------------------------------------------------------------------------

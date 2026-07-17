@@ -144,8 +144,32 @@ class TestNetworkIntelligence(unittest.TestCase):
         self.assertIn("hour_distribution", behavior)
         self.assertIn("timezone_inference", behavior)
 
+    def test_geocoding_ip_and_phone(self):
+        entities_list = [{"type": "phone", "value": "+919999999999", "position": 0}]
+        self.db.save_message_entities(1, entities_list, "2026-07-03T10:15:30+00:00")
+        
+        from src.processing.geocoding_service import GeocodingService
+        geocoder = GeocodingService(self.db)
+        
+        from src.storage.database import get_db as test_get_db
+        with test_get_db(self.db.db_path) as conn:
+            row = conn.execute("SELECT id FROM entities WHERE entity_value = ?", ("+919999999999",)).fetchone()
+            
+        self.assertIsNotNone(row)
+        entity_id = row["id"]
+        
+        coords = geocoder.geocode_entity(entity_id, "phone", "+919999999999")
+        self.assertIsNotNone(coords)
+        self.assertEqual(coords[2], "India")
+
+        loopback_coords = geocoder._geocode_ip("127.0.0.1")
+        self.assertEqual(loopback_coords[0], None)
+        self.assertIn("Loopback", loopback_coords[2])
+
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

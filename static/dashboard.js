@@ -251,6 +251,7 @@ function startAutoRefresh() {
     if (id === "section-messages")   loadMessages(currentPage);
     if (id === "section-campaigns")  loadCampaigns();
     if (id === "section-network")    loadNetworkIntel();
+    if (id === "section-map")        loadThreatMap();
     if (id === "section-actors")     loadActors();
     if (id === "section-cases")      loadCasesAndWatchlists();
     if (id === "section-health")     loadHealth();
@@ -267,6 +268,7 @@ function manualRefresh() {
   if (id === "section-keywords")   loadKeywords();
   if (id === "section-campaigns")  loadCampaigns();
   if (id === "section-network")    loadNetworkIntel();
+  if (id === "section-map")        loadThreatMap();
   if (id === "section-actors")     loadActors();
   if (id === "section-cases")      loadCasesAndWatchlists();
   if (id === "section-health")     loadHealth();
@@ -287,6 +289,7 @@ function showSection(name) {
     export:    "Export",
     campaigns: "Campaign Intel",
     network:   "Network Intel",
+    map:       "Map Intel",
     actors:    "Actor Profiles",
     cases:     "Case Files",
     health:    "Pipeline Health",
@@ -298,10 +301,12 @@ function showSection(name) {
   if (name === "keywords")   loadKeywords();
   if (name === "campaigns")  loadCampaigns();
   if (name === "network")    loadNetworkIntel();
+  if (name === "map")        loadThreatMap();
   if (name === "actors")     loadActors();
   if (name === "cases")      loadCasesAndWatchlists();
   if (name === "health")     loadHealth();
 }
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function buildDatetimeParam(dateId, timeId) {
@@ -1700,10 +1705,126 @@ function showToast(msg) {
   }, 3000);
 }
 
+// ── Threat Map (Leaflet) ──────────────────────────────────────────────────────
+let threatMap = null;
+let threatMarkers = [];
+
+async function loadThreatMap() {
+  const canvas = document.getElementById("threat-map-canvas");
+  if (!canvas) return;
+
+  // Initialize Leaflet map if not created yet
+  if (!threatMap) {
+    threatMap = L.map("threat-map-canvas").setView([20.0, 30.0], 2.5);
+    
+    // Add CartoDB Dark Matter tile layer
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20
+    }).addTo(threatMap);
+  }
+
+  // Clear existing markers
+  threatMarkers.forEach(m => m.remove());
+  threatMarkers = [];
+
+  try {
+    const points = await fetch("/api/map/threat-points").then(r => r.json());
+    
+    if (!points || points.length === 0) {
+      showToast("No geocoded threat points found.");
+      return;
+    }
+
+    points.forEach(pt => {
+      let color = "#3b82f6";
+      if (pt.type === "phone") {
+        color = "#10b981";
+      } else if (pt.type === "ip_address") {
+        color = "#fbbf24";
+      }
+      
+      if (pt.threat_level === "Critical") color = "#ef4444";
+      else if (pt.threat_level === "High") color = "#f97316";
+      
+      const pinSvg = `
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" fill="${color}"/>
+        </svg>
+      `;
+      
+      const customIcon = L.divIcon({
+        html: pinSvg,
+        className: 'custom-map-pin',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24]
+      });
+
+      const popupHtml = `
+        <div style="font-family: inherit; font-size: 11px; color: #1e293b; padding: 4px; line-height: 1.4;">
+          <div style="font-weight: bold; font-size: 12px; color: ${color}; margin-bottom: 4px;">
+            ${pt.type === 'phone' ? '📞 Phone' : '🌐 IP Address'} Geocode
+          </div>
+          <div style="font-family: monospace; font-weight: bold; font-size: 12px; margin-bottom: 6px;">
+            ${e(pt.value)}
+          </div>
+          <div class="metric-row" style="padding: 2px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; gap: 20px;">
+            <span style="color:#64748b;">Location</span>
+            <span style="font-weight:500;">${e(pt.label)}</span>
+          </div>
+          <div class="metric-row" style="padding: 2px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; gap: 20px;">
+            <span style="color:#64748b;">Source Group</span>
+            <span style="font-weight:500;">${e(pt.group_name || 'Unknown')}</span>
+          </div>
+          <div class="metric-row" style="padding: 2px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; gap: 20px;">
+            <span style="color:#64748b;">Sender</span>
+            <span style="font-weight:500;">${e(pt.sender_name || '—')}</span>
+          </div>
+          <div class="metric-row" style="padding: 2px 0; display: flex; justify-content: space-between; gap: 20px;">
+            <span style="color:#64748b;">Threat Level</span>
+            <span style="font-weight:bold; color:${color};">${pt.threat_level} (${pt.risk_score.toFixed(0)})</span>
+          </div>
+          <div style="margin-top: 8px; display: flex; gap: 5px;">
+            <button onclick="pivotToMessagesSearch('${e(pt.value)}')" style="background: ${color}; color: #fff; border: none; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer; flex: 1; text-align: center;">
+              🔍 Pivot to Messages
+            </button>
+          </div>
+        </div>
+      `;
+
+      const marker = L.marker([pt.lat, pt.lng], { icon: customIcon })
+        .bindPopup(popupHtml)
+        .addTo(threatMap);
+        
+      threatMarkers.push(marker);
+    });
+
+    setTimeout(() => {
+      threatMap.invalidateSize();
+    }, 200);
+
+  } catch (err) {
+    console.error("Failed to load threat map points:", err);
+    showToast("Failed to retrieve map threat coordinates.");
+  }
+}
+
 // ── Actor Profiles (Phase 5) ──────────────────────────────────────────────────
 let chartActorTimezone = null;
 let chartActorSpecialties = null;
 window.selectedActorId = null;
+
+function exportActorDossier() {
+  if (!window.selectedActorId) {
+    showToast("Please select an actor first.", "warning");
+    return;
+  }
+  const actorId = encodeURIComponent(window.selectedActorId);
+  const url = `/api/actors/export-dossier?id=${actorId}&name=${actorId}`;
+  window.open(url, '_blank');
+}
+
 
 
 async function loadActors() {

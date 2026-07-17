@@ -144,6 +144,17 @@ CREATE TABLE IF NOT EXISTS phone_enrichments (
     FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS geocodes (
+    entity_id   INTEGER PRIMARY KEY,
+    latitude    REAL NOT NULL,
+    longitude   REAL NOT NULL,
+    country     TEXT,
+    city        TEXT,
+    resolved_at TEXT NOT NULL,
+    FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+);
+
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -399,6 +410,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 value TEXT
             );
         """)
+
+        # Create geocodes table if missing
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS geocodes (
+                entity_id   INTEGER PRIMARY KEY,
+                latitude    REAL NOT NULL,
+                longitude   REAL NOT NULL,
+                country     TEXT,
+                city        TEXT,
+                resolved_at TEXT NOT NULL,
+                FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+            );
+        """)
+
     except Exception as exc:
         logger.error("Failed to execute phase 5 / 6 migrations: %s", exc)
 
