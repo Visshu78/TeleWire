@@ -586,12 +586,75 @@
           </div>
 
 
+          <!-- OSINT Dossier Trigger Button -->
+          <div style="margin: 0 0 20px 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+              <div>
+                <h3 style="margin: 0 0 2px 0; font-size: 14px; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.5px;">🕵️ OSINT Dossier</h3>
+                <p style="margin: 0; font-size: 11px; color: #64748b;">Live profile lookup + all posted IOCs. Only runs when you request it.</p>
+              </div>
+              <button id="btn-pull-dossier" class="btn btn-primary btn-sm" onclick="pullActorDossier()" style="background: linear-gradient(135deg, #be123c, #9f1239); border-color: #f43f5e; white-space: nowrap;">🔍 Pull Dossier</button>
+            </div>
+
+            <!-- Dossier Result Panel (hidden until fetched) -->
+            <div id="actor-dossier-panel" style="display: none; border: 1px solid rgba(244,63,94,0.2); border-radius: 10px; background: rgba(244,63,94,0.04); padding: 16px;">
+              <!-- Loading state -->
+              <div id="dossier-loading" style="text-align:center; color: #94a3b8; font-size: 12px; padding: 10px 0; display:none;">⏳ Querying Telegram profile and aggregating intelligence...</div>
+              
+              <!-- Telegram Profile Card -->
+              <div id="dossier-tg-profile" style="display:none;">
+                <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.5px;">Telegram Profile (Live Resolved)</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;">
+                  <div class="metric-row"><span class="metric-label">Full Name</span><span id="d-fullname" class="metric-value" style="font-size:12px;">—</span></div>
+                  <div class="metric-row"><span class="metric-label">Username</span><span id="d-username" class="metric-value" style="font-family:monospace;font-size:12px;">—</span></div>
+                  <div class="metric-row"><span class="metric-label">Phone</span><span id="d-phone" class="metric-value" style="font-family:monospace;font-size:12px;color:#4ade80;">—</span></div>
+                  <div class="metric-row"><span class="metric-label">Status</span><span id="d-status" class="metric-value" style="font-size:12px;">—</span></div>
+                  <div class="metric-row"><span class="metric-label">User ID</span><span id="d-userid" class="metric-value" style="font-family:monospace;font-size:11px;">—</span></div>
+                  <div class="metric-row"><span class="metric-label">Account Type</span><span id="d-acct-type" class="metric-value" style="font-size:12px;">—</span></div>
+                </div>
+                <div id="d-bio-row" style="display:none; margin-bottom: 10px;">
+                  <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;">Bio / About Text</div>
+                  <div id="d-bio" style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px; font-size: 12px; color: #e2e8f0; border-left: 3px solid #fbbf24; white-space: pre-wrap; word-break: break-word;"></div>
+                </div>
+                <div id="d-privacy-note" style="display:none; font-size:11px; color:#f59e0b; background:rgba(245,158,11,0.08); padding:6px 10px; border-radius:6px; margin-bottom:8px;"></div>
+              </div>
+              
+              <!-- IOC Intelligence Card -->
+              <div id="dossier-ioc-panel" style="display:none; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; margin-top: 14px;">
+                <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.5px;">Posted IOC Intelligence (From Ingested Messages)</h4>
+                <div id="d-phones-row" style="margin-bottom: 10px; display:none;">
+                  <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;">📞 Phone Numbers Shared</div>
+                  <div id="d-phones" style="display:flex; flex-wrap:wrap; gap:4px;"></div>
+                </div>
+                <div id="d-upi-row" style="margin-bottom: 10px; display:none;">
+                  <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;">💳 UPI IDs Shared</div>
+                  <div id="d-upi" style="display:flex; flex-wrap:wrap; gap:4px;"></div>
+                </div>
+                <div id="d-email-row" style="margin-bottom: 10px; display:none;">
+                  <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;">📧 Emails Shared</div>
+                  <div id="d-emails" style="display:flex; flex-wrap:wrap; gap:4px;"></div>
+                </div>
+                <div id="d-crypto-row" style="margin-bottom: 10px; display:none;">
+                  <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;">₿ Crypto Wallets Shared</div>
+                  <div id="d-crypto" style="display:flex; flex-direction:column; gap:4px;"></div>
+                </div>
+              </div>
+              
+              <!-- OSINT Pivot Links -->
+              <div id="dossier-pivots-panel" style="display:none; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; margin-top: 14px;">
+                <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #22d3ee; text-transform: uppercase; letter-spacing: 0.5px;">🔗 OSINT Pivot Links (Open Manually)</h4>
+                <div id="d-pivots" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+              </div>
+            </div>
+          </div>
+
           <h3 style="margin: 20px 0 10px 0; color: #a78bfa; font-size: 14px; text-transform: uppercase;">Recent Threat Activity</h3>
           <div id="actor-messages-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 250px; overflow-y: auto; padding-right: 6px;"></div>
         </div>
       </div>
     </div>
   </section>
+
 
   <!-- ════════════════ CASE FILES & WATCHLISTS ════════════════ -->
   <section id="section-cases" class="section">

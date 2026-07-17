@@ -307,6 +307,134 @@ def api_actor_behavior(actor_id):
     return jsonify(behavior)
 
 
+async def _fetch_telegram_user_profile(client, sender_id: str) -> dict:
+    """
+    Use Telethon GetFullUserRequest to pull available profile data.
+    Only fetches what Telegram exposes given the target's privacy settings.
+    Returns a dict with whatever was resolved — empty fields are None.
+    """
+    from telethon.tl.functions.users import GetFullUserRequest
+    from telethon.tl.types import UserStatusOnline, UserStatusOffline, UserStatusRecently
+    import os
+
+    profile = {
+        "tg_user_id": None,
+        "username": None,
+        "first_name": None,
+        "last_name": None,
+        "phone": None,
+        "bio": None,
+        "is_bot": False,
+        "is_verified": False,
+        "is_restricted": False,
+        "photo_available": False,
+        "status": "Unknown",
+        "privacy_note": None,
+    }
+
+    try:
+        # sender_id may be numeric or a username — try numeric first
+        try:
+            entity_id = int(sender_id)
+        except ValueError:
+            entity_id = sender_id
+
+        full = await client(GetFullUserRequest(entity_id))
+        user = full.users[0] if full.users else None
+
+        if user:
+            profile["tg_user_id"] = user.id
+            profile["username"] = getattr(user, "username", None)
+            profile["first_name"] = getattr(user, "first_name", None)
+            profile["last_name"] = getattr(user, "last_name", None)
+            profile["is_bot"] = bool(getattr(user, "bot", False))
+            profile["is_verified"] = bool(getattr(user, "verified", False))
+            profile["is_restricted"] = bool(getattr(user, "restricted", False))
+            profile["photo_available"] = user.photo is not None
+
+            # Phone number — only visible if privacy settings allow
+            raw_phone = getattr(user, "phone", None)
+            if raw_phone:
+                profile["phone"] = f"+{raw_phone}" if not str(raw_phone).startswith("+") else raw_phone
+            else:
+                profile["privacy_note"] = "Phone number hidden by privacy settings"
+
+            # Bio / About text
+            if hasattr(full, "full_user") and full.full_user:
+                profile["bio"] = getattr(full.full_user, "about", None) or None
+
+            # Online status
+            status = getattr(user, "status", None)
+            if isinstance(status, UserStatusOnline):
+                profile["status"] = "Online"
+            elif isinstance(status, UserStatusRecently):
+                profile["status"] = "Recently Active"
+            elif isinstance(status, UserStatusOffline):
+                last = getattr(status, "was_online", None)
+                profile["status"] = f"Last seen {last.strftime('%Y-%m-%d %H:%M UTC')}" if last else "Offline"
+            else:
+                profile["status"] = "Hidden (Long Inactive or Privacy Restricted)"
+
+    except Exception as exc:
+        logger.warning("Telethon GetFullUser failed for %s: %s", sender_id, exc)
+        profile["privacy_note"] = f"Could not resolve Telegram profile: {exc}"
+
+    return profile
+
+
+@bp.route("/api/actors/<actor_id>/dossier")
+def api_actor_dossier(actor_id):
+    """
+    On-demand OSINT dossier for a specific actor.
+    Combines Telegram GetFullUserRequest profile with all DB-stored IOC intelligence.
+    Only runs when explicitly called by the analyst.
+    """
+    db = _db()
+    sender_name = request.args.get("name", "")
+
+    # Step 1: Pull all internal DB intel
+    db_intel = db.get_actor_dossier_db(sender_id=actor_id, sender_name=sender_name)
+
+    # Step 2: Attempt live Telethon profile lookup
+    tg_profile = {}
+    try:
+        manager = current_app.config.get("PIPELINE_MANAGER")
+        client = manager.get_first_client() if manager else None
+        if client and client.is_connected():
+            tg_profile = _run_async(_fetch_telegram_user_profile(client, actor_id))
+        else:
+            tg_profile = {"privacy_note": "Telegram client not connected — live profile unavailable."}
+    except Exception as exc:
+        logger.warning("Dossier live profile fetch failed: %s", exc)
+        tg_profile = {"privacy_note": f"Live profile lookup error: {exc}"}
+
+    # Step 3: Generate OSINT pivot search URLs (no automated scraping — analyst clicks manually)
+    osint_pivots = []
+    search_terms = []
+    if tg_profile.get("username"):
+        search_terms.append(f"@{tg_profile['username']}")
+    if sender_name:
+        search_terms.append(sender_name)
+
+    for term in search_terms:
+        import urllib.parse
+        q = urllib.parse.quote_plus(term)
+        osint_pivots.extend([
+            {"label": f"Google: {term}", "url": f"https://www.google.com/search?q={q}"},
+            {"label": f"Twitter/X: {term}", "url": f"https://twitter.com/search?q={q}"},
+            {"label": f"Telegram Web: {term}", "url": f"https://t.me/{tg_profile.get('username', '')}"},
+        ])
+    for phone in db_intel.get("phones_posted", []):
+        q = urllib.parse.quote_plus(phone)
+        osint_pivots.append({"label": f"Google Phone: {phone}", "url": f"https://www.google.com/search?q={q}"})
+
+    return jsonify({
+        "telegram_profile": tg_profile,
+        "db_intel": db_intel,
+        "osint_pivots": osint_pivots,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Stats API
 # ---------------------------------------------------------------------------

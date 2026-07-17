@@ -1858,7 +1858,150 @@ function renderActorBehaviorFingerprint(behavior) {
 }
 
 
+// ── OSINT Dossier ─────────────────────────────────────────────────────────────
+async function pullActorDossier() {
+  if (!window.selectedActorId) {
+    showToast("Please select an actor first.", "warning");
+    return;
+  }
+
+  const btn = document.getElementById("btn-pull-dossier");
+  const panel = document.getElementById("actor-dossier-panel");
+  const loading = document.getElementById("dossier-loading");
+  const tgSection = document.getElementById("dossier-tg-profile");
+  const iocSection = document.getElementById("dossier-ioc-panel");
+  const pivotsSection = document.getElementById("dossier-pivots-panel");
+
+  // Show panel in loading state
+  panel.style.display = "block";
+  loading.style.display = "block";
+  tgSection.style.display = "none";
+  iocSection.style.display = "none";
+  pivotsSection.style.display = "none";
+  btn.textContent = "⏳ Loading...";
+  btn.disabled = true;
+
+  try {
+    const actorName = encodeURIComponent(window.selectedActorId);
+    const url = `/api/actors/${actorName}/dossier?name=${actorName}`;
+    const data = await fetch(url).then(r => r.json());
+    loading.style.display = "none";
+    renderActorDossier(data);
+  } catch (err) {
+    loading.textContent = `❌ Failed to fetch dossier: ${err.message}`;
+    console.error("Dossier fetch failed:", err);
+  } finally {
+    btn.textContent = "🔄 Refresh Dossier";
+    btn.disabled = false;
+  }
+}
+
+function renderActorDossier(data) {
+  const tgProfile = data.telegram_profile || {};
+  const dbIntel = data.db_intel || {};
+  const pivots = data.osint_pivots || [];
+
+  // ── Telegram Profile ────────────────────────────────────────────────────
+  const tgSection = document.getElementById("dossier-tg-profile");
+  tgSection.style.display = "block";
+
+  const fullName = [tgProfile.first_name, tgProfile.last_name].filter(Boolean).join(" ") || "—";
+  document.getElementById("d-fullname").textContent = fullName;
+  document.getElementById("d-username").textContent = tgProfile.username ? `@${tgProfile.username}` : "—";
+  document.getElementById("d-status").textContent = tgProfile.status || "—";
+  document.getElementById("d-userid").textContent = tgProfile.tg_user_id || "—";
+
+  const phoneEl = document.getElementById("d-phone");
+  if (tgProfile.phone) {
+    phoneEl.textContent = tgProfile.phone;
+    phoneEl.style.color = "#4ade80";
+  } else {
+    phoneEl.textContent = "Hidden / Not Resolved";
+    phoneEl.style.color = "#f59e0b";
+  }
+
+  const acctFlags = [];
+  if (tgProfile.is_bot) acctFlags.push("🤖 Bot");
+  else acctFlags.push("👤 Human");
+  if (tgProfile.is_verified) acctFlags.push("✅ Verified");
+  if (tgProfile.is_restricted) acctFlags.push("🚫 Restricted");
+  document.getElementById("d-acct-type").textContent = acctFlags.join(" · ") || "—";
+
+  const bioRow = document.getElementById("d-bio-row");
+  if (tgProfile.bio) {
+    document.getElementById("d-bio").textContent = tgProfile.bio;
+    bioRow.style.display = "block";
+  } else {
+    bioRow.style.display = "none";
+  }
+
+  const privNote = document.getElementById("d-privacy-note");
+  if (tgProfile.privacy_note) {
+    privNote.textContent = `⚠️ ${tgProfile.privacy_note}`;
+    privNote.style.display = "block";
+  } else {
+    privNote.style.display = "none";
+  }
+
+  // ── IOC Intelligence ────────────────────────────────────────────────────
+  const iocSection = document.getElementById("dossier-ioc-panel");
+  let hasIoc = false;
+
+  function renderChips(containerId, rowId, items, color, copyable = true) {
+    const row = document.getElementById(rowId);
+    if (items && items.length > 0) {
+      document.getElementById(containerId).innerHTML = items.map(v =>
+        `<span class="tag-chip" style="background:${color}1a;color:${color};font-size:11px;padding:2px 8px;border-radius:4px;font-family:monospace;cursor:${copyable ? 'pointer' : 'default'};"
+          ${copyable ? `onclick="navigator.clipboard.writeText('${e(v)}'); showToast('Copied!', 'success');" title="Click to copy"` : ''}>${e(v)}</span>`
+      ).join("");
+      row.style.display = "block";
+      hasIoc = true;
+    } else {
+      row.style.display = "none";
+    }
+  }
+
+  renderChips("d-phones", "d-phones-row", dbIntel.phones_posted, "#4ade80");
+  renderChips("d-upi", "d-upi-row", dbIntel.upi_posted, "#fbbf24");
+  renderChips("d-emails", "d-email-row", dbIntel.emails_posted, "#22d3ee");
+
+  // Crypto — richer display
+  const cryptoRow = document.getElementById("d-crypto-row");
+  const cryptoContainer = document.getElementById("d-crypto");
+  if (dbIntel.crypto_posted && dbIntel.crypto_posted.length > 0) {
+    cryptoContainer.innerHTML = dbIntel.crypto_posted.map(w => {
+      const sanctionBadge = w.is_sanctioned ? `<span style="color:#ef4444; font-size:10px; font-weight:bold; margin-left:6px;">⚠️ SANCTIONED (${e(w.sanction_source || '')})</span>` : "";
+      const balText = w.balance != null ? `  |  Balance: ${parseFloat(w.balance).toFixed(6)}` : "";
+      return `<div style="background:rgba(251,191,36,0.06); padding:6px 10px; border-radius:6px; border-left:3px solid #f59e0b; font-size:11px; cursor:pointer;"
+        onclick="navigator.clipboard.writeText('${e(w.entity_value)}'); showToast('Copied!', 'success');" title="Click to copy">
+        <span style="color:#f59e0b; font-weight:bold;">${e(w.entity_type.toUpperCase().replace("CRYPTO_",""))}</span>&nbsp;
+        <span style="font-family:monospace; color:#e2e8f0;">${e(w.entity_value)}</span>${balText}${sanctionBadge}
+      </div>`;
+    }).join("");
+    cryptoRow.style.display = "block";
+    hasIoc = true;
+  } else {
+    cryptoRow.style.display = "none";
+  }
+
+  iocSection.style.display = hasIoc ? "block" : "none";
+
+  // ── OSINT Pivot Links ───────────────────────────────────────────────────
+  const pivotsSection = document.getElementById("dossier-pivots-panel");
+  const pivotsContainer = document.getElementById("d-pivots");
+  if (pivots.length > 0) {
+    pivotsContainer.innerHTML = pivots.map(p =>
+      `<a href="${p.url}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="font-size:11px; padding:3px 10px; color:#22d3ee; border-color:rgba(34,211,238,0.3);">↗ ${e(p.label)}</a>`
+    ).join("");
+    pivotsSection.style.display = "block";
+  } else {
+    pivotsSection.style.display = "none";
+  }
+}
+
+
 function renderActorMessages(messages) {
+
   const container = document.getElementById("actor-messages-list");
   if (!messages || !messages.length) {
     container.innerHTML = `<div class="loading-cell">No message data available for this actor.</div>`;

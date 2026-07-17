@@ -1397,6 +1397,102 @@ class DatabaseHandler:
         return res
 
 
+    def get_actor_dossier_db(self, sender_id: str, sender_name: str) -> dict:
+        """
+        Aggregates all internal intelligence about an actor from the DB.
+        Called by the on-demand OSINT dossier endpoint.
+        """
+        sid = str(sender_id).strip()
+        sname = sender_name.strip() if sender_name else ""
+        
+        # Use OR matching: search by either sender_id or sender_name
+        match_clause = "(sender_id = ? OR sender_name = ?)"
+        params_pair = (sid, sname)
+        
+        sql_groups = f"""
+            SELECT DISTINCT group_id, group_name
+            FROM messages
+            WHERE {match_clause} AND group_name IS NOT NULL
+        """
+        
+        sql_phones_posted = f"""
+            SELECT DISTINCT e.entity_value
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE ({match_clause.replace('sender_id', 'm.sender_id').replace('sender_name', 'm.sender_name')})
+              AND e.entity_type = 'phone'
+        """
+        
+        sql_upi_posted = f"""
+            SELECT DISTINCT e.entity_value
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE ({match_clause.replace('sender_id', 'm.sender_id').replace('sender_name', 'm.sender_name')})
+              AND e.entity_type = 'upi_id'
+        """
+        
+        sql_crypto_posted = f"""
+            SELECT DISTINCT e.entity_type, e.entity_value,
+                   w.balance, w.total_received, w.is_sanctioned, w.sanction_source
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            LEFT JOIN wallet_enrichments w ON w.entity_id = e.id
+            WHERE ({match_clause.replace('sender_id', 'm.sender_id').replace('sender_name', 'm.sender_name')})
+              AND e.entity_type LIKE 'crypto_%'
+            LIMIT 20
+        """
+        
+        sql_email_posted = f"""
+            SELECT DISTINCT e.entity_value
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE ({match_clause.replace('sender_id', 'm.sender_id').replace('sender_name', 'm.sender_name')})
+              AND e.entity_type = 'email'
+        """
+        
+        sql_phone_enrichment = """
+            SELECT pe.carrier_name, pe.country_code, pe.phone_type, pe.region
+            FROM phone_enrichments pe
+            JOIN entities e ON pe.entity_id = e.id
+            JOIN message_entities me ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE (m.sender_id = ? OR m.sender_name = ?)
+              AND e.entity_type = 'phone'
+            LIMIT 1
+        """
+        
+        result = {
+            "groups": [],
+            "phones_posted": [],
+            "upi_posted": [],
+            "crypto_posted": [],
+            "emails_posted": [],
+            "phone_enrichment": None,
+        }
+        
+        try:
+            with get_db(self.db_path) as conn:
+                result["groups"] = [dict(r) for r in conn.execute(sql_groups, params_pair).fetchall()]
+                result["phones_posted"] = [r[0] for r in conn.execute(sql_phones_posted, params_pair + params_pair).fetchall()]
+                result["upi_posted"] = [r[0] for r in conn.execute(sql_upi_posted, params_pair + params_pair).fetchall()]
+                result["emails_posted"] = [r[0] for r in conn.execute(sql_email_posted, params_pair + params_pair).fetchall()]
+                
+                crypto_rows = conn.execute(sql_crypto_posted, params_pair + params_pair).fetchall()
+                result["crypto_posted"] = [dict(r) for r in crypto_rows]
+                
+                pe_row = conn.execute(sql_phone_enrichment, params_pair).fetchone()
+                if pe_row:
+                    result["phone_enrichment"] = dict(pe_row)
+        except Exception as exc:
+            logger.error("get_actor_dossier_db failed for %s/%s: %s", sender_id, sender_name, exc)
+            
+        return result
+
+
     def get_wallet_enrichment(self, entity_value: str) -> dict | None:
         """Retrieve wallet enrichment details by address value."""
         sql = """
