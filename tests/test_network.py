@@ -136,8 +136,16 @@ class TestNetworkIntelligence(unittest.TestCase):
         self.assertIn("entity", node_types)
         self.assertGreater(len(edges), 0)
 
+    def test_actor_behavior_fingerprinting(self):
+        behavior = self.db.get_actor_behavior("Bob")
+        self.assertIsNotNone(behavior)
+        self.assertEqual(behavior["group_count"], 2)
+        self.assertEqual(behavior["op_mode"], "Human Operator")
+        self.assertIn("hour_distribution", behavior)
+        self.assertIn("timezone_inference", behavior)
 
 
 if __name__ == "__main__":
     unittest.main()
+
 

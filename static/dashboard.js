@@ -1702,7 +1702,9 @@ function showToast(msg) {
 
 // ── Actor Profiles (Phase 5) ──────────────────────────────────────────────────
 let chartActorTimezone = null;
+let chartActorSpecialties = null;
 window.selectedActorId = null;
+
 
 async function loadActors() {
   const deck = document.getElementById("actors-list-deck");
@@ -1759,6 +1761,13 @@ async function selectActor(idx) {
   document.getElementById("actor-profile-avgrisk").textContent = a.average_risk.toFixed(1);
   document.getElementById("actor-profile-cumrisk").textContent = a.cumulative_risk.toFixed(1);
 
+  // Clear fingerprint elements with loading text
+  document.getElementById("bf-op-mode").textContent = "Loading...";
+  document.getElementById("bf-group-count").textContent = "Loading...";
+  document.getElementById("bf-urgency").textContent = "Loading...";
+  document.getElementById("bf-media").textContent = "Loading...";
+  document.getElementById("actor-timezone-inference").textContent = "Analyzing operational timezone...";
+
   const listContainer = document.getElementById("actor-messages-list");
   listContainer.innerHTML = `<div class="loading-cell">Loading actor messages…</div>`;
 
@@ -1766,11 +1775,88 @@ async function selectActor(idx) {
     const data = await fetch(`/api/messages?sender_name=${encodeURIComponent(a.sender_id)}&page_size=100`).then(r => r.json());
     renderActorMessages(data.messages);
     renderActorTimezoneChart(data.messages);
+    
+    // Fetch behavior fingerprint
+    const behavior = await fetch(`/api/actors/${encodeURIComponent(a.sender_id)}/behavior`).then(r => r.json());
+    renderActorBehaviorFingerprint(behavior);
   } catch (e) {
     console.error("Failed to load actor messages:", e);
     listContainer.innerHTML = `<div class="loading-cell">Failed to load messages.</div>`;
   }
 }
+
+function renderActorBehaviorFingerprint(behavior) {
+  if (!behavior) return;
+
+  document.getElementById("bf-op-mode").textContent = behavior.op_mode;
+  document.getElementById("bf-group-count").textContent = behavior.group_count;
+  document.getElementById("bf-urgency").textContent = (behavior.urgency_bias || 0).toFixed(1) + "%";
+  document.getElementById("bf-media").textContent = (behavior.media_ratio || 0).toFixed(1) + "%";
+  document.getElementById("actor-timezone-inference").textContent = behavior.timezone_inference || "";
+
+  const cats = behavior.categories || {};
+  const labels = Object.keys(cats);
+  const data = Object.values(cats);
+
+  if (chartActorSpecialties) chartActorSpecialties.destroy();
+
+  const ctx = document.getElementById("actor-specialties-chart").getContext("2d");
+  
+  if (labels.length === 0) {
+    labels.push("Benign / Unclassified");
+    data.push(1);
+  }
+
+  const borderColors = {
+    "Scam/Fraud": "#3b82f6",
+    "Weapons/Violent Extremism": "#ef4444",
+    "Cybersecurity/Hacking": "#10b981",
+    "Financial Crimes/Money Mule": "#fbbf24",
+    "Drug Trafficking": "#ec4899",
+    "Legitimate": "#6b7280",
+    "Benign": "#6b7280"
+  };
+  const backgroundColors = {
+    "Scam/Fraud": "rgba(59, 130, 246, 0.4)",
+    "Weapons/Violent Extremism": "rgba(239, 68, 68, 0.4)",
+    "Cybersecurity/Hacking": "rgba(16, 185, 129, 0.4)",
+    "Financial Crimes/Money Mule": "rgba(251, 191, 36, 0.4)",
+    "Drug Trafficking": "rgba(236, 72, 153, 0.4)",
+    "Legitimate": "rgba(107, 114, 128, 0.4)",
+    "Benign": "rgba(107, 114, 128, 0.4)"
+  };
+
+  const bgCols = labels.map(l => backgroundColors[l] || "rgba(167, 139, 250, 0.4)");
+  const borderCols = labels.map(l => borderColors[l] || "#a78bfa");
+
+  chartActorSpecialties = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: bgCols,
+        borderColor: borderCols,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "right",
+          labels: {
+            color: "#94a3b8",
+            font: { size: 9 },
+            boxWidth: 8
+          }
+        }
+      }
+    }
+  });
+}
+
 
 function renderActorMessages(messages) {
   const container = document.getElementById("actor-messages-list");

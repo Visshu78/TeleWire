@@ -299,6 +299,14 @@ def api_high_risk_actors():
     return jsonify(actors)
 
 
+@bp.route("/api/actors/<actor_id>/behavior")
+def api_actor_behavior(actor_id):
+    """Retrieve behavioral analysis and fingerprinting stats for a specific actor."""
+    db = _db()
+    behavior = db.get_actor_behavior(actor_id)
+    return jsonify(behavior)
+
+
 # ---------------------------------------------------------------------------
 # Stats API
 # ---------------------------------------------------------------------------

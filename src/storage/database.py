@@ -1273,6 +1273,128 @@ class DatabaseHandler:
             
         return details
 
+    def get_actor_behavior(self, sender_name: str) -> dict:
+        """
+        Builds behavioral fingerprinting data for an actor.
+        """
+        sender_name = sender_name.strip()
+        
+        sql_cats = """
+            SELECT threat_category, COUNT(*) as cat_count
+            FROM messages
+            WHERE sender_name = ?
+            GROUP BY threat_category
+        """
+        
+        sql_groups = """
+            SELECT COUNT(DISTINCT group_id) as g_count
+            FROM messages
+            WHERE sender_name = ?
+        """
+        
+        sql_media = """
+            SELECT COUNT(*) as media_count
+            FROM messages
+            WHERE sender_name = ? AND media_path IS NOT NULL AND media_path != ''
+        """
+        
+        sql_total = """
+            SELECT COUNT(*) as total_count
+            FROM messages
+            WHERE sender_name = ?
+        """
+        
+        sql_urgency = """
+            SELECT COUNT(*) as urgency_count
+            FROM messages
+            WHERE sender_name = ? AND (
+                text LIKE '%urgent%' OR text LIKE '%immediately%' OR text LIKE '%right now%' OR
+                text LIKE '%asap%' OR text LIKE '%hurry%' OR text LIKE '%action required%' OR
+                ocr_text LIKE '%urgent%' OR ocr_text LIKE '%immediately%' OR ocr_text LIKE '%asap%'
+            )
+        """
+        
+        sql_hours = """
+            SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hr, COUNT(*) as hr_count
+            FROM messages
+            WHERE sender_name = ?
+            GROUP BY hr
+        """
+        
+        res = {
+            "categories": {},
+            "group_count": 0,
+            "media_ratio": 0.0,
+            "urgency_bias": 0.0,
+            "op_mode": "Human Operator",
+            "timezone_inference": "Continuous (Possible automated bot profile)",
+            "hour_distribution": [0] * 24
+        }
+        
+        try:
+            with get_db(self.db_path) as conn:
+                t_row = conn.execute(sql_total, (sender_name,)).fetchone()
+                total = t_row["total_count"] if t_row else 0
+                if total == 0:
+                    return res
+                
+                for r in conn.execute(sql_cats, (sender_name,)).fetchall():
+                    cat = r["threat_category"] or "Benign"
+                    res["categories"][cat] = r["cat_count"]
+                    
+                g_row = conn.execute(sql_groups, (sender_name,)).fetchone()
+                res["group_count"] = g_row["g_count"] if g_row else 0
+                
+                m_row = conn.execute(sql_media, (sender_name,)).fetchone()
+                media_cnt = m_row["media_count"] if m_row else 0
+                res["media_ratio"] = (media_cnt / total) * 100.0
+                
+                u_row = conn.execute(sql_urgency, (sender_name,)).fetchone()
+                urg_cnt = u_row["urgency_count"] if u_row else 0
+                res["urgency_bias"] = (urg_cnt / total) * 100.0
+                
+                h_rows = conn.execute(sql_hours, (sender_name,)).fetchall()
+                active_hours_count = 0
+                peak_hour = 0
+                peak_count = 0
+                
+                for r in h_rows:
+                    hr = r["hr"]
+                    cnt = r["hr_count"]
+                    if 0 <= hr < 24:
+                        res["hour_distribution"][hr] = cnt
+                        active_hours_count += 1
+                        if cnt > peak_count:
+                            peak_count = cnt
+                            peak_hour = hr
+                
+                if active_hours_count >= 18:
+                    res["op_mode"] = "Automated Bot"
+                else:
+                    res["op_mode"] = "Human Operator"
+                    
+                offset = 14 - peak_hour
+                if offset > 12:
+                    offset -= 24
+                elif offset < -12:
+                    offset += 24
+                    
+                if offset == 0 or offset == 1:
+                    res["timezone_inference"] = "Peak active hours match GMT/BST (Europe / UK / West Africa)"
+                elif offset == 2 or offset == 3:
+                    res["timezone_inference"] = "Peak active hours match EET/MSK (Eastern Europe / Russia / East Africa)"
+                elif 4 <= offset <= 6:
+                    res["timezone_inference"] = "Peak active hours match IST/GST (South Asia / India / Middle East)"
+                elif 7 <= offset <= 9:
+                    res["timezone_inference"] = "Peak active hours match SGT/CST (China / Singapore / East Asia)"
+                elif -8 <= offset <= -5:
+                    res["timezone_inference"] = "Peak active hours match EST/PST (Americas / USA)"
+                else:
+                    res["timezone_inference"] = f"Activity peak at {peak_hour:02d}:00 UTC (Estimated offset: UTC{'+' if offset >= 0 else ''}{offset})"
+        except Exception as exc:
+            logger.error("get_actor_behavior failed for %s: %s", sender_name, exc)
+            
+        return res
 
 
     def get_wallet_enrichment(self, entity_value: str) -> dict | None:
