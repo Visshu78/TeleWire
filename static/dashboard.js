@@ -1717,8 +1717,8 @@ async function loadThreatMap() {
   if (!threatMap) {
     threatMap = L.map("threat-map-canvas").setView([20.0, 30.0], 2.5);
     
-    // Add CartoDB Dark Matter tile layer
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    // Add CartoDB Positron (Light/White) tile layer
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       subdomains: 'abcd',
       maxZoom: 20
@@ -1739,7 +1739,7 @@ async function loadThreatMap() {
 
     points.forEach(pt => {
       let color = "#3b82f6";
-      if (pt.type === "phone") {
+      if (pt.type === "phone" || pt.type === "phone_number") {
         color = "#10b981";
       } else if (pt.type === "ip_address") {
         color = "#fbbf24";
@@ -1764,7 +1764,7 @@ async function loadThreatMap() {
       const popupHtml = `
         <div style="font-family: inherit; font-size: 11px; color: #1e293b; padding: 4px; line-height: 1.4;">
           <div style="font-weight: bold; font-size: 12px; color: ${color}; margin-bottom: 4px;">
-            ${pt.type === 'phone' ? '📞 Phone' : '🌐 IP Address'} Geocode
+            ${(pt.type === 'phone' || pt.type === 'phone_number') ? '📞 Phone' : '🌐 IP Address'} Geocode
           </div>
           <div style="font-family: monospace; font-weight: bold; font-size: 12px; margin-bottom: 6px;">
             ${e(pt.value)}

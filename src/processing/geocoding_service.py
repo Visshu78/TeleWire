@@ -103,7 +103,7 @@ class GeocodingService:
 
         lat, lng, country, city = None, None, None, None
 
-        if etype == "phone":
+        if etype in ("phone", "phone_number"):
             lat, lng, country, city = self._geocode_phone(entity_id, evalue)
         elif etype == "ip_address":
             lat, lng, country, city = self._geocode_ip(evalue)

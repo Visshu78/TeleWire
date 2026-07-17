@@ -145,7 +145,7 @@ class TestNetworkIntelligence(unittest.TestCase):
         self.assertIn("timezone_inference", behavior)
 
     def test_geocoding_ip_and_phone(self):
-        entities_list = [{"type": "phone", "value": "+919999999999", "position": 0}]
+        entities_list = [{"type": "phone_number", "value": "+919999999999", "position": 0}]
         self.db.save_message_entities(1, entities_list, "2026-07-03T10:15:30+00:00")
         
         from src.processing.geocoding_service import GeocodingService
@@ -158,7 +158,7 @@ class TestNetworkIntelligence(unittest.TestCase):
         self.assertIsNotNone(row)
         entity_id = row["id"]
         
-        coords = geocoder.geocode_entity(entity_id, "phone", "+919999999999")
+        coords = geocoder.geocode_entity(entity_id, "phone_number", "+919999999999")
         self.assertIsNotNone(coords)
         self.assertEqual(coords[2], "India")
 

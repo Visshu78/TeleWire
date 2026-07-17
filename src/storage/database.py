@@ -1518,6 +1518,39 @@ class DatabaseHandler:
         return result
 
 
+    def get_geocoded_threat_points(self) -> list:
+        """
+        Retrieves all phone_number and ip_address entities found in threat messages.
+        """
+        sql = """
+            SELECT DISTINCT e.id, e.entity_type, e.entity_value, m.sender_name, m.group_name, m.risk_score
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE e.entity_type IN ('phone_number', 'ip_address')
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                rows = conn.execute(sql).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_geocoded_threat_points failed: %s", exc)
+            return []
+
+    def get_actor_risk_tier(self, actor_id: str) -> str:
+        """Retrieves the risk tier for a given actor ID."""
+        sql = "SELECT risk_tier FROM sender_profiles WHERE sender_id = ?"
+        try:
+            with get_db(self.db_path) as conn:
+                row = conn.execute(sql, (actor_id,)).fetchone()
+                if row:
+                    return row["risk_tier"]
+        except Exception:
+            pass
+        return "Medium"
+
+
+
     def get_wallet_enrichment(self, entity_value: str) -> dict | None:
         """Retrieve wallet enrichment details by address value."""
         sql = """

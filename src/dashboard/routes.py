@@ -452,19 +452,9 @@ def api_map_threat_points():
     db = _db()
     geocoder = GeocodingService(db)
     
-    sql_entities = """
-        SELECT DISTINCT e.id, e.entity_type, e.entity_value, m.sender_name, m.group_name, m.risk_score
-        FROM message_entities me
-        JOIN entities e ON me.entity_id = e.id
-        JOIN messages m ON me.message_id = m.id
-        WHERE e.entity_type IN ('phone', 'ip_address')
-    """
-    
     points = []
     try:
-        with get_db(db.db_path) as conn:
-            rows = conn.execute(sql_entities).fetchall()
-            
+        rows = db.get_geocoded_threat_points()
         for r in rows:
             eid = r["id"]
             etype = r["entity_type"]
@@ -543,15 +533,8 @@ def api_export_actor_dossier():
         acct_flags.append("Restricted")
     acct_flags_str = " · ".join(acct_flags)
 
-    sql_avg_risk = "SELECT risk_tier FROM sender_profiles WHERE sender_id = ?"
-    risk_tier = "Medium"
-    try:
-        with get_db(db.db_path) as conn:
-            row = conn.execute(sql_avg_risk, (actor_id,)).fetchone()
-            if row:
-                risk_tier = row["risk_tier"]
-    except Exception:
-        pass
+    risk_tier = db.get_actor_risk_tier(actor_id)
+
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
