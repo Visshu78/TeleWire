@@ -135,12 +135,16 @@ This script streams realistic target channels traffic, extracts test wallet addr
 
 ### 6. Threat Risk Scoring & Alarms Dispatcher
 *   **Weighted Threat Risk Scorer (`src/processing/scoring_service.py`):** Calculates a composite score (0-100) combining sanctions list matches (+40), threat categories (+20 to +30), keyword match proximity (+15), campaign memberships (+10), and urgency language heuristics (+10).
-*   **Real-time Dispatcher:** Issues warning payloads via Webhook POST requests and styled Telegram markdown alerts to configured endpoints if the risk score exceeds `ALERT_THRESHOLD`.
+*   **Real-time Dispatcher & Live Alerts Configurator:** Issues warning payloads via Webhook POST requests and Telegram alerts. Features a live configuration control panel in the **Pipeline Health** section to modify the Alert Risk Threshold, Webhook URL, Telegram Bot Token, and Chat ID dynamically with a dynamic `🔔 Send Test Alert` trigger.
 
 ### 7. Directed Network Centralities & Temporal Profiling
 *   **Topology Graph Builder (`src/processing/network_service.py`):** Formulates channel forward relationships into a directed network using `NetworkX`. Calculates PageRank centralities, in-degrees, and out-degrees, outputting elements for interactive Cytoscape.js layouts.
-*   **Actor Profiling:** Calculates rolling averages of sender threat risk scores, classifying senders into Risk Tiers (Critical, High, Medium, Low).
-*   **Timezone Inferences:** Maps posting timestamp histories into 24-hour UTC histograms to estimate the threat actor's timezone.
+*   **On-Demand Node Detail Peeking & Pivot Search**: Clicking any visual node (Actor or IOC) queries the database on-demand to retrieve total messages/detections, first/last seen timestamps, and linked components (groups, senders, and wallets). Provides a **`🔍 Pivot to Messages`** pipeline that instantly filters the search interface to match the selected actor or IOC, complete with a clear pivot status indicator card.
+*   **Actor Behavioral Fingerprinting & Specialties Doughnut Charts**:
+    *   *Circadian Inferences*: Automatically classifies account activity as a *Human Operator* or *Automated Bot* based on temporal posting coverage and estimates the operator's geographical timezone offset.
+    *   *Linguistic & Media Ratios*: Tracks urgency language bias frequency and media attachment ratios across all posted messages.
+    *   *Threat Specialization Charting*: Renders a Chart.js doughnut visualization mapping the actor's threat category specialties (Scam, Hacking, Mule, etc.).
+*   **On-Demand OSINT Dossier**: Adds a `🕵️ Pull Dossier` action that fetches live profile metadata from Telegram's API (`GetFullUserRequest`) (displaying name, handle, status, bio/about, and phone numbers if visible), aggregates all historically shared UPI IDs, phone numbers, emails, and crypto wallets from the DB, and auto-generates external search engine pivot links.
 
 ### 8. Case Builder Workspace
 *   **Case Folders (`src/processing/reporting_service.py`):** Groups related findings (threat messages, wallets, and actor handles) into a single folder.
