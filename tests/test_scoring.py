@@ -52,6 +52,30 @@ class TestThreatScoring(unittest.TestCase):
         # 30 (Weapons) + 15 (100% fuzzy) + 10 (campaign) + 10 (urgency: right now) = 65
         self.assertEqual(calculate_risk_score(msg3), 65.0)
 
+    def test_custom_scoring_weights(self):
+        # Configure customized scoring settings multipliers in database
+        self.db.set_setting("weight_scam", "2.0")
+        self.db.set_setting("weight_violence", "0.5")
+        self.db.set_setting("bonus_crypto_presence", "25.0")
+
+        # Scam message
+        msg_scam = {
+            "text": "Join my scam",
+            "threat_category": "Scam/Fraud",
+            "entities": []
+        }
+        # Base scam score: 20.0 * 2.0 (multiplier) = 40.0
+        self.assertEqual(calculate_risk_score(msg_scam, db=self.db), 40.0)
+
+        # Weapons message with crypto wallet
+        msg_weapon = {
+            "text": "Send coins to pay for ammunition",
+            "threat_category": "Weapons/Violent Extremism",
+            "entities": [{"type": "crypto_btc", "entity_value": "1A1zP"}]
+        }
+        # 30.0 * 0.5 (violence multiplier) + 25.0 (crypto bonus) = 40.0
+        self.assertEqual(calculate_risk_score(msg_weapon, db=self.db), 40.0)
+
     def test_sender_profile_aggregation(self):
         # Update profile for same sender twice
         self.db.update_sender_profile("ScammerX", None, 50.0, "2026-07-03T12:00:00Z")

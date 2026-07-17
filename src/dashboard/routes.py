@@ -206,13 +206,21 @@ def api_settings():
         db.set_setting("alert_webhook_url", data.get("alert_webhook_url", ""))
         db.set_setting("alert_telegram_bot_token", data.get("alert_telegram_bot_token", ""))
         db.set_setting("alert_telegram_chat_id", data.get("alert_telegram_chat_id", ""))
+        db.set_setting("weight_scam", data.get("weight_scam", "1.0"))
+        db.set_setting("weight_violence", data.get("weight_violence", "1.0"))
+        db.set_setting("weight_cyber", data.get("weight_cyber", "1.0"))
+        db.set_setting("bonus_crypto_presence", data.get("bonus_crypto_presence", "15.0"))
         return jsonify({"status": "success", "message": "Alert settings saved successfully."})
     else:
         settings = {
             "alert_threshold": db.get_setting("alert_threshold", "70.0"),
             "alert_webhook_url": db.get_setting("alert_webhook_url", ""),
             "alert_telegram_bot_token": db.get_setting("alert_telegram_bot_token", ""),
-            "alert_telegram_chat_id": db.get_setting("alert_telegram_chat_id", "")
+            "alert_telegram_chat_id": db.get_setting("alert_telegram_chat_id", ""),
+            "weight_scam": db.get_setting("weight_scam", "1.0"),
+            "weight_violence": db.get_setting("weight_violence", "1.0"),
+            "weight_cyber": db.get_setting("weight_cyber", "1.0"),
+            "bonus_crypto_presence": db.get_setting("bonus_crypto_presence", "15.0")
         }
         return jsonify(settings)
 

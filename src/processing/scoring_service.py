@@ -5,27 +5,49 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-def calculate_risk_score(data: dict) -> float:
+def calculate_risk_score(data: dict, db=None) -> float:
     """
     Calculate a composite threat risk score from 0 to 100.
     """
     score = 0.0
     
+    # Load settings coefficients if database is provided
+    w_scam = 1.0
+    w_violence = 1.0
+    w_cyber = 1.0
+    b_crypto = 15.0
+    
+    if db:
+        try:
+            w_scam = float(db.get_setting("weight_scam", "1.0"))
+            w_violence = float(db.get_setting("weight_violence", "1.0"))
+            w_cyber = float(db.get_setting("weight_cyber", "1.0"))
+            b_crypto = float(db.get_setting("bonus_crypto_presence", "15.0"))
+        except Exception:
+            pass
+
     # 1. Sanctioned wallet addresses (+40 points per wallet)
     entities = data.get("entities", [])
+    has_crypto = False
     if entities:
         for ent in entities:
             if ent.get("is_sanctioned") == 1:
                 score += 40.0
+            if ent.get("type", "").startswith("crypto_") or ent.get("entity_type", "").startswith("crypto_"):
+                has_crypto = True
 
-    # 2. Threat category (+20 to +30 points)
+    # 1b. Crypto presence bonus
+    if has_crypto:
+        score += b_crypto
+
+    # 2. Threat category (+20 to +30 points multiplied by category weights)
     threat = data.get("threat_category", "Benign")
     if threat in ["Drugs", "Weapons/Violent Extremism", "Drug Trafficking"]:
-        score += 30.0
+        score += 30.0 * w_violence
     elif threat in ["Cybersecurity/Hacking", "Hacking"]:
-        score += 25.0
+        score += 25.0 * w_cyber
     elif threat in ["Money Mule", "Financial Crimes/Money Mule", "Scam", "Scam/Fraud"]:
-        score += 20.0
+        score += 20.0 * w_scam
 
     # 3. Fuzzy match keyword threshold proximity (up to +15 points)
     if data.get("is_matched"):

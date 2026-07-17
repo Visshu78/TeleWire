@@ -438,6 +438,7 @@ async function refreshCharts() {
     });
 
     // Top keywords
+    window.dashboardKeywordsData = stats.per_keyword || [];
     const kwLabels = stats.per_keyword.map(k => k.matched_keyword);
     const kwCounts = stats.per_keyword.map(k => k.cnt);
     if (chartKw) chartKw.destroy();
@@ -457,6 +458,11 @@ async function refreshCharts() {
         }
       }
     });
+
+    // Re-draw word cloud if in cloud view
+    if (window.currentKeywordsView === 'cloud') {
+      renderDashboardWordCloud();
+    }
 
     // Top groups donut
     const grpLabels = stats.per_group.map(g => g.group_name);
@@ -1714,6 +1720,9 @@ function showToast(msg) {
 // ── Threat Map (Leaflet) ──────────────────────────────────────────────────────
 let threatMap = null;
 let threatMarkers = [];
+let threatMarkerLayerGroup = null;
+let threatHeatLayer = null;
+let mapLayersControl = null;
 
 async function loadThreatMap() {
   const canvas = document.getElementById("threat-map-canvas");
@@ -1745,16 +1754,24 @@ async function loadThreatMap() {
     // Add light tiles by default
     lightTiles.addTo(threatMap);
 
+    // Initialize layer groups for markers and heatmaps
+    threatMarkerLayerGroup = L.layerGroup().addTo(threatMap);
+    threatHeatLayer = L.heatLayer([], { radius: 30, blur: 18, maxZoom: 12 }).addTo(threatMap);
+
     // Setup base map layer control selector switcher
     const baseMaps = {
       "Light View": lightTiles,
       "Satellite View": satelliteView
     };
-    L.control.layers(baseMaps, null, { position: 'topright' }).addTo(threatMap);
+    const overlays = {
+      "Threat Markers": threatMarkerLayerGroup,
+      "Heatmap Density": threatHeatLayer
+    };
+    mapLayersControl = L.control.layers(baseMaps, overlays, { position: 'topright' }).addTo(threatMap);
   }
 
   // Clear existing markers
-  threatMarkers.forEach(m => m.remove());
+  threatMarkerLayerGroup.clearLayers();
   threatMarkers = [];
 
   try {
@@ -1764,6 +1781,8 @@ async function loadThreatMap() {
       showToast("No geocoded threat points found.");
       return;
     }
+
+    const heatPoints = [];
 
     points.forEach(pt => {
       let color = "#3b82f6";
@@ -1776,6 +1795,9 @@ async function loadThreatMap() {
       if (pt.threat_level === "Critical") color = "#ef4444";
       else if (pt.threat_level === "High") color = "#f97316";
       
+      // Save point for heatmap
+      heatPoints.push([pt.lat, pt.lng, pt.risk_score / 100.0]);
+
       const pinSvg = `
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" fill="${color}"/>
@@ -1824,10 +1846,13 @@ async function loadThreatMap() {
       const marker = L.marker([pt.lat, pt.lng], { icon: customIcon })
         .bindPopup(popupHtml)
         .bindTooltip(`Coordinates: ${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}`, { permanent: false, direction: 'top' })
-        .addTo(threatMap);
+        .addTo(threatMarkerLayerGroup);
         
       threatMarkers.push(marker);
     });
+
+    // Load coordinates inside heat map
+    threatHeatLayer.setLatLngs(heatPoints);
 
     setTimeout(() => {
       threatMap.invalidateSize();
@@ -1910,6 +1935,15 @@ async function selectActor(idx) {
   document.getElementById("actor-profile-total").textContent = a.total_messages;
   document.getElementById("actor-profile-avgrisk").textContent = a.average_risk.toFixed(1);
   document.getElementById("actor-profile-cumrisk").textContent = a.cumulative_risk.toFixed(1);
+
+  // Populate comparison actor select options
+  const compSelect = document.getElementById("actor-compare-select");
+  if (compSelect) {
+    compSelect.innerHTML = `<option value="">Compare with...</option>` +
+      (window.currentActors || []).filter(x => x.sender_id !== a.sender_id).map(x => 
+        `<option value="${e(x.sender_id)}">${e(x.sender_id)}</option>`
+      ).join("");
+  }
 
   // Clear fingerprint elements with loading text
   document.getElementById("bf-op-mode").textContent = "Loading...";
@@ -2196,6 +2230,7 @@ function renderActorTimezoneChart(messages) {
     } catch(e) {}
   });
 
+  window.primaryActorHourCounts = hourCounts;
   const labels = Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`);
 
   if (chartActorTimezone) chartActorTimezone.destroy();
@@ -2206,7 +2241,7 @@ function renderActorTimezoneChart(messages) {
     data: {
       labels: labels,
       datasets: [{
-        label: "Messages Posted",
+        label: window.selectedActorId || "Primary Actor",
         data: hourCounts,
         backgroundColor: "rgba(249, 115, 22, 0.4)",
         borderColor: "#f97316",
@@ -2217,13 +2252,72 @@ function renderActorTimezoneChart(messages) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: { legend: { display: true, labels: { color: "#94a3b8", font: { size: 9 } } } },
       scales: {
         x: { ticks: { color: "#94a3b8", font: { size: 9 } }, grid: { color: "#2a2a3e" } },
         y: { ticks: { color: "#94a3b8", font: { size: 9 } }, grid: { color: "#2a2a3e" } }
       }
     }
   });
+}
+
+async function compareActorTimeZone() {
+  const compSelect = document.getElementById("actor-compare-select");
+  if (!compSelect || !chartActorTimezone) return;
+
+  const compareActorName = compSelect.value;
+
+  if (!compareActorName) {
+    // Restore single actor display
+    chartActorTimezone.data.datasets = [{
+      label: window.selectedActorId || "Primary Actor",
+      data: window.primaryActorHourCounts,
+      backgroundColor: "rgba(249, 115, 22, 0.4)",
+      borderColor: "#f97316",
+      borderWidth: 1,
+      borderRadius: 4
+    }];
+    chartActorTimezone.update();
+    return;
+  }
+
+  try {
+    const data = await fetch(`/api/messages?sender_name=${encodeURIComponent(compareActorName)}&page_size=100`).then(r => r.json());
+    const otherHourCounts = Array(24).fill(0);
+    
+    (data.messages || []).forEach(m => {
+      try {
+        const date = new Date(m.timestamp);
+        const h = date.getHours();
+        if (!isNaN(h) && h >= 0 && h < 24) {
+          otherHourCounts[h]++;
+        }
+      } catch(e) {}
+    });
+
+    chartActorTimezone.data.datasets = [
+      {
+        label: window.selectedActorId || "Primary",
+        data: window.primaryActorHourCounts,
+        backgroundColor: "rgba(249, 115, 22, 0.4)",
+        borderColor: "#f97316",
+        borderWidth: 1,
+        borderRadius: 4
+      },
+      {
+        label: compareActorName,
+        data: otherHourCounts,
+        backgroundColor: "rgba(167, 139, 250, 0.4)",
+        borderColor: "#a78bfa",
+        borderWidth: 1,
+        borderRadius: 4
+      }
+    ];
+    chartActorTimezone.update();
+  } catch (err) {
+    console.error("Failed to fetch compare actor timezone details:", err);
+    showToast("Error loading comparison timezone activity.", "error");
+  }
 }
 
 function openActorMessageDetail(index) {
@@ -3384,6 +3478,24 @@ async function loadAlertSettings() {
       document.getElementById("settings-webhook").value = res.alert_webhook_url || "";
       document.getElementById("settings-tg-token").value = res.alert_telegram_bot_token || "";
       document.getElementById("settings-tg-chat").value = res.alert_telegram_chat_id || "";
+      
+      // Load scoring coefficients
+      const scam = res.weight_scam || "1.0";
+      const violence = res.weight_violence || "1.0";
+      const cyber = res.weight_cyber || "1.0";
+      const crypto = res.bonus_crypto_presence || "15";
+      
+      document.getElementById("settings-weight-scam").value = scam;
+      document.getElementById("val-weight-scam").textContent = scam;
+      
+      document.getElementById("settings-weight-violence").value = violence;
+      document.getElementById("val-weight-violence").textContent = violence;
+      
+      document.getElementById("settings-weight-cyber").value = cyber;
+      document.getElementById("val-weight-cyber").textContent = cyber;
+      
+      document.getElementById("settings-bonus-crypto").value = crypto;
+      document.getElementById("val-bonus-crypto").textContent = crypto;
     }
   } catch (err) {
     console.error("Failed to load alert settings:", err);
@@ -3397,7 +3509,11 @@ async function saveAlertSettings(event) {
     alert_threshold: document.getElementById("settings-threshold").value,
     alert_webhook_url: document.getElementById("settings-webhook").value.trim(),
     alert_telegram_bot_token: document.getElementById("settings-tg-token").value.trim(),
-    alert_telegram_chat_id: document.getElementById("settings-tg-chat").value.trim()
+    alert_telegram_chat_id: document.getElementById("settings-tg-chat").value.trim(),
+    weight_scam: document.getElementById("settings-weight-scam").value,
+    weight_violence: document.getElementById("settings-weight-violence").value,
+    weight_cyber: document.getElementById("settings-weight-cyber").value,
+    bonus_crypto_presence: document.getElementById("settings-bonus-crypto").value
   };
 
   try {
@@ -3716,5 +3832,105 @@ async function checkAndRenderLeakWarning(elementId, value) {
     // Ignore error silently
   }
 }
+
+// ── Word Cloud Renderer ──
+window.currentKeywordsView = 'chart';
+window.wordCloudBoxes = [];
+
+function switchKeywordsView(view) {
+  window.currentKeywordsView = view;
+  const barBtn = document.getElementById("btn-view-keywords-chart");
+  const cloudBtn = document.getElementById("btn-view-keywords-cloud");
+  const barCanvas = document.getElementById("chart-keywords");
+  const cloudCanvas = document.getElementById("word-cloud-canvas");
+
+  if (!barBtn || !cloudBtn || !barCanvas || !cloudCanvas) return;
+
+  if (view === 'chart') {
+    barBtn.style.background = "#8b5cf6";
+    cloudBtn.style.background = "rgba(255,255,255,0.08)";
+    barCanvas.style.display = "block";
+    cloudCanvas.style.display = "none";
+  } else {
+    barBtn.style.background = "rgba(255,255,255,0.08)";
+    cloudBtn.style.background = "#8b5cf6";
+    barCanvas.style.display = "none";
+    cloudCanvas.style.display = "block";
+    renderDashboardWordCloud();
+  }
+}
+
+function renderDashboardWordCloud() {
+  const canvas = document.getElementById("word-cloud-canvas");
+  if (!canvas || window.currentKeywordsView !== 'cloud') return;
+  const data = window.dashboardKeywordsData || [];
+  if (data.length === 0) return;
+
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width = canvas.offsetWidth || 300;
+  const h = canvas.height = canvas.offsetHeight || 220;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const maxCnt = Math.max(...data.map(d => d.cnt));
+  const minCnt = Math.min(...data.map(d => d.cnt)) || 1;
+
+  window.wordCloudBoxes = [];
+  const colors = ["#a78bfa", "#fb923c", "#f87171", "#60a5fa", "#34d399", "#c084fc", "#f472b6", "#22d3ee"];
+
+  data.forEach((kwItem, i) => {
+    const word = kwItem.matched_keyword;
+    const cnt = kwItem.cnt;
+    
+    const size = minCnt === maxCnt ? 16 : 10 + ((cnt - minCnt) / (maxCnt - minCnt)) * 16;
+    ctx.font = `bold ${Math.round(size)}px Inter, sans-serif`;
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    const angle = i * 0.95;
+    const radius = i * 14;
+    const x = w / 2 + Math.cos(angle) * radius;
+    const y = h / 2 + Math.sin(angle) * radius;
+
+    const boundedX = Math.max(50, Math.min(w - 50, x));
+    const boundedY = Math.max(25, Math.min(h - 25, y));
+
+    ctx.fillText(word, boundedX, boundedY);
+
+    const metrics = ctx.measureText(word);
+    const boxW = metrics.width;
+    const boxH = size;
+    window.wordCloudBoxes.push({
+      word: word,
+      x1: boundedX - boxW / 2 - 5,
+      y1: boundedY - boxH / 2 - 5,
+      x2: boundedX + boxW / 2 + 5,
+      y2: boundedY + boxH / 2 + 5
+    });
+  });
+}
+
+// Attach event listener for click on Word Cloud canvas
+document.addEventListener("DOMContentLoaded", () => {
+  const canvas = document.getElementById("word-cloud-canvas");
+  if (canvas) {
+    canvas.addEventListener("click", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
+
+      if (window.wordCloudBoxes) {
+        const match = window.wordCloudBoxes.find(box => 
+          clickX >= box.x1 && clickX <= box.x2 && clickY >= box.y1 && clickY <= box.y2
+        );
+        if (match) {
+          pivotToMessagesSearch(match.word);
+        }
+      }
+    });
+  }
+});
+
 
 

@@ -284,7 +284,7 @@ class TelegramListener:
                     m_db = await loop.run_in_executor(self.executor, self.db.get_message_by_row_id, row_id)
                     if m_db:
                         from src.processing.scoring_service import calculate_risk_score, dispatch_alerts
-                        score = calculate_risk_score(m_db)
+                        score = calculate_risk_score(m_db, db=self.db)
                         # Save score to DB
                         await loop.run_in_executor(self.executor, self.db.update_message_risk_score, row_id, score)
                         # Emit live event to connected browsers (non-blocking)
