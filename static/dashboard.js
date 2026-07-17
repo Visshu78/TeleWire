@@ -1717,12 +1717,26 @@ async function loadThreatMap() {
   if (!threatMap) {
     threatMap = L.map("threat-map-canvas").setView([20.0, 30.0], 2.5);
     
-    // Add CartoDB Positron (Light/White) tile layer
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    const lightTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       subdomains: 'abcd',
       maxZoom: 20
-    }).addTo(threatMap);
+    });
+    
+    const satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+      maxZoom: 18
+    });
+
+    // Add light tiles by default
+    lightTiles.addTo(threatMap);
+
+    // Setup base map layer control selector switcher
+    const baseMaps = {
+      "Light View": lightTiles,
+      "Satellite View": satelliteTiles
+    };
+    L.control.layers(baseMaps, null, { position: 'topright' }).addTo(threatMap);
   }
 
   // Clear existing markers

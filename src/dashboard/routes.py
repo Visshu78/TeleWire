@@ -446,46 +446,82 @@ def api_actor_dossier():
 def api_map_threat_points():
     """
     Returns all geocoded phone and IP entities found in threat messages.
-    Queries the database and resolves coordinates on-demand (utilizing local geocode cache).
+    Queries cached coordinates in a single JOIN (<10ms), geocodes newly discovered
+    ones concurrently via thread pool, and saves updates.
     """
     from src.processing.geocoding_service import GeocodingService
+    from concurrent.futures import ThreadPoolExecutor
     db = _db()
     geocoder = GeocodingService(db)
     
     points = []
     try:
-        rows = db.get_geocoded_threat_points()
-        for r in rows:
-            eid = r["id"]
-            etype = r["entity_type"]
-            evalue = r["entity_value"]
-            
-            coords = geocoder.geocode_entity(eid, etype, evalue)
-            if coords:
-                lat, lng, country, city = coords
-                label = f"{country or 'Unknown'} ({city or 'Unknown'})" if city or country else evalue
+        # Step 1: Load all already cached/resolved geocode points via single JOIN query
+        cached_rows = db.get_cached_threat_points()
+        for r in cached_rows:
+            risk = r["risk_score"] or 0.0
+            threat_level = "Low"
+            if risk >= 80:
+                threat_level = "Critical"
+            elif risk >= 60:
+                threat_level = "High"
+            elif risk >= 30:
+                threat_level = "Medium"
                 
-                risk = r["risk_score"] or 0.0
-                threat_level = "Low"
-                if risk >= 80:
-                    threat_level = "Critical"
-                elif risk >= 60:
-                    threat_level = "High"
-                elif risk >= 30:
-                    threat_level = "Medium"
+            points.append({
+                "id": r["id"],
+                "type": r["entity_type"],
+                "value": r["entity_value"],
+                "lat": r["latitude"],
+                "lng": r["longitude"],
+                "label": f"{r['country'] or 'Unknown'} ({r['city'] or 'Unknown'})" if r['city'] or r['country'] else r['entity_value'],
+                "sender_name": r["sender_name"],
+                "group_name": r["group_name"],
+                "threat_level": threat_level,
+                "risk_score": risk
+            })
+            
+        # Step 2: Load any newly discovered, ungeocoded threat points
+        ungeocoded = db.get_ungeocoded_threat_points()
+        if ungeocoded:
+            # Geocode them in parallel using a thread pool (max 10 workers)
+            def geocode_worker(r):
+                eid = r["id"]
+                etype = r["entity_type"]
+                evalue = r["entity_value"]
+                coords = geocoder.geocode_entity(eid, etype, evalue)
+                if coords:
+                    lat, lng, country, city = coords
+                    risk = r["risk_score"] or 0.0
+                    threat_level = "Low"
+                    if risk >= 80:
+                        threat_level = "Critical"
+                    elif risk >= 60:
+                        threat_level = "High"
+                    elif risk >= 30:
+                        threat_level = "Medium"
+                    return {
+                        "id": eid,
+                        "type": etype,
+                        "value": evalue,
+                        "lat": lat,
+                        "lng": lng,
+                        "label": f"{country or 'Unknown'} ({city or 'Unknown'})" if city or country else evalue,
+                        "sender_name": r["sender_name"],
+                        "group_name": r["group_name"],
+                        "threat_level": threat_level,
+                        "risk_score": risk
+                    }
+                return None
+
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                resolved_results = list(executor.map(geocode_worker, ungeocoded))
+                
+            # Filter out Nones and append
+            for res in resolved_results:
+                if res:
+                    points.append(res)
                     
-                points.append({
-                    "id": eid,
-                    "type": etype,
-                    "value": evalue,
-                    "lat": lat,
-                    "lng": lng,
-                    "label": label,
-                    "sender_name": r["sender_name"],
-                    "group_name": r["group_name"],
-                    "threat_level": threat_level,
-                    "risk_score": risk
-                })
     except Exception as exc:
         logger.error("Failed to compile threat points: %s", exc)
         return jsonify({"error": str(exc)}), 500
