@@ -529,6 +529,60 @@ def api_map_threat_points():
     return jsonify(points)
 
 
+@bp.route("/api/actors/aliases")
+def api_actor_aliases():
+    """
+    Returns a list of potential aliases for a given threat actor sender name.
+    """
+    actor_name = request.args.get("id", "").strip()
+    if not actor_name:
+        return jsonify([])
+    db = _db()
+    aliases = db.get_actor_aliases(actor_name)
+    return jsonify(aliases)
+
+
+@bp.route("/api/actors/ioc-timeline")
+def api_actor_ioc_timeline():
+    """
+    Returns a chronological sequence of all IOC entities posted by the actor.
+    """
+    actor_name = request.args.get("id", "").strip()
+    if not actor_name:
+        return jsonify([])
+    db = _db()
+    timeline = db.get_actor_ioc_timeline(actor_name)
+    return jsonify(timeline)
+
+
+@bp.route("/api/entities/leak-check")
+def api_entities_leak_check():
+    """
+    Checks if a given entity value hits the Dark Web leak registry catalog.
+    """
+    val = request.args.get("value", "").strip()
+    if not val:
+        return jsonify(None)
+    db = _db()
+    hit = db.lookup_leak_entity(val)
+    return jsonify(hit)
+
+
+@bp.route("/api/war-room/updates")
+def api_war_room_updates():
+    """
+    Retrieves new threat messages since a specific message row ID.
+    Used for the real-time SOC War Room console update loop.
+    """
+    try:
+        last_id = int(request.args.get("last_id", "0"))
+    except ValueError:
+        last_id = 0
+    db = _db()
+    new_msgs = db.get_messages_since_id(last_id)
+    return jsonify(new_msgs)
+
+
 @bp.route("/api/actors/export-dossier")
 def api_export_actor_dossier():
     """

@@ -424,6 +424,32 @@ def _migrate(conn: sqlite3.Connection) -> None:
             );
         """)
 
+        # Create leak_registry table if missing
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS leak_registry (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_value TEXT UNIQUE NOT NULL,
+                source_leak  TEXT NOT NULL,
+                leak_date    TEXT NOT NULL,
+                details      TEXT
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_leak_entity_value ON leak_registry(entity_value);")
+
+        # Seed mock leak registry values if empty
+        row_count = conn.execute("SELECT COUNT(*) FROM leak_registry").fetchone()[0]
+        if row_count == 0:
+            mock_leaks = [
+                ("@alice_tg", "RaidForums Cybercrime Breach", "2021-08-12", "Linked to active forum selling carding templates and compromised banking logins."),
+                ("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "Silk Road FBI List & Crypto Leaks", "2020-11-04", "Genesis transaction address flagged in historic cybercrime and underground darknet marketplace forums."),
+                ("+919999999999", "Telegram BOT Scraper Leak DB", "2023-05-18", "Compromised phone registry exposed via threat actor scanning bot lookup tools."),
+                ("@fraudster_tg", "Underground Hackers Telegram Channel Dump", "2025-02-10", "Linked to financial scams and active identity theft campaigns.")
+            ]
+            conn.executemany(
+                "INSERT INTO leak_registry (entity_value, source_leak, leak_date, details) VALUES (?, ?, ?, ?)",
+                mock_leaks
+            )
+            logger.info("Seeded %d leak registry records", len(mock_leaks))
     except Exception as exc:
         logger.error("Failed to execute phase 5 / 6 migrations: %s", exc)
 
@@ -1572,6 +1598,165 @@ class DatabaseHandler:
         except Exception:
             pass
         return "Medium"
+
+
+    def lookup_leak_entity(self, entity_value: str) -> dict | None:
+        """Lookup an entity inside the Dark Web leak registry."""
+        sql = "SELECT source_leak, leak_date, details FROM leak_registry WHERE entity_value = ?"
+        try:
+            with get_db(self.db_path) as conn:
+                row = conn.execute(sql, (entity_value.strip(),)).fetchone()
+                if row:
+                    return dict(row)
+        except Exception as e:
+            logger.warning("Error checking leak registry: %s", e)
+        return None
+
+    def get_actor_aliases(self, sender_name: str) -> list:
+        """
+        Calculates potential threat actor aliases based on shared IOC postings
+        (crypto wallets, phone numbers, email, telegram handles) and timezone correlation.
+        """
+        sender_name = sender_name.strip()
+        if not sender_name:
+            return []
+
+        # Step 1: Find all entities posted by this sender
+        sql_sender_entities = """
+            SELECT DISTINCT e.id, e.entity_type, e.entity_value
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE m.sender_name = ?
+        """
+        
+        # Step 2: Retrieve behavior distribution for hourly correlation
+        my_behavior = self.get_actor_behavior(sender_name)
+        my_hours = my_behavior.get("hour_distribution", [0]*24)
+        my_sum = sum(my_hours)
+
+        aliases = {}
+        try:
+            with get_db(self.db_path) as conn:
+                my_ents = conn.execute(sql_sender_entities, (sender_name,)).fetchall()
+                if not my_ents:
+                    return []
+                
+                # For each entity, find who else posted it
+                for ent in my_ents:
+                    eid = ent["id"]
+                    etype = ent["entity_type"]
+                    evalue = ent["entity_value"]
+                    
+                    sql_other_posters = """
+                        SELECT DISTINCT m.sender_name
+                        FROM message_entities me
+                        JOIN messages m ON me.message_id = m.id
+                        WHERE me.entity_id = ? AND m.sender_name != ? AND m.sender_name != ''
+                    """
+                    others = conn.execute(sql_other_posters, (eid, sender_name)).fetchall()
+                    for other in others:
+                        oname = other["sender_name"]
+                        if oname not in aliases:
+                            aliases[oname] = {
+                                "sender_name": oname,
+                                "shared_ioc_count": 0,
+                                "reasons": [],
+                                "confidence": 0
+                            }
+                        
+                        weight = 30
+                        reason_prefix = "Shared IOC"
+                        if etype.startswith("crypto_"):
+                            weight = 50
+                            reason_prefix = "Shared Crypto Wallet"
+                        elif etype == "phone_number":
+                            weight = 50
+                            reason_prefix = "Shared Phone Number"
+                        elif etype == "upi_id":
+                            weight = 40
+                            reason_prefix = "Shared UPI Identifier"
+                        elif etype == "telegram_handle":
+                            weight = 40
+                            reason_prefix = "Shared Telegram Handle"
+                            
+                        aliases[oname]["shared_ioc_count"] += 1
+                        aliases[oname]["reasons"].append(f"{reason_prefix} ({evalue})")
+                        aliases[oname]["confidence"] += weight
+
+            # Step 3: Run temporal hourly correlation checks for suspected aliases
+            for oname, info in list(aliases.items()):
+                other_behavior = self.get_actor_behavior(oname)
+                other_hours = other_behavior.get("hour_distribution", [0]*24)
+                other_sum = sum(other_hours)
+                
+                # Check timezone match
+                if my_behavior.get("timezone_inference") == other_behavior.get("timezone_inference") and my_behavior.get("timezone_inference") != "Unknown":
+                    info["confidence"] += 15
+                    info["reasons"].append(f"Matching operational timezone region ({my_behavior.get('timezone_inference')})")
+
+                # Correlation overlap metric
+                if my_sum > 0 and other_sum > 0:
+                    overlap_score = 0
+                    for h in range(24):
+                        my_p = my_hours[h] / my_sum
+                        other_p = other_hours[h] / other_sum
+                        overlap_score += min(my_p, other_p)
+                    
+                    if overlap_score >= 0.65:
+                        info["confidence"] += 20
+                        info["reasons"].append(f"High posting hours schedule overlap ({overlap_score*100:.0f}%)")
+
+                # Cap confidence to 98%
+                info["confidence"] = min(info["confidence"], 98)
+                
+            # Filter matches and sort by confidence descending
+            matches = [v for v in aliases.values() if v["confidence"] >= 20]
+            matches.sort(key=lambda x: x["confidence"], reverse=True)
+            return matches
+        except Exception as exc:
+            logger.error("get_actor_aliases failed for %s: %s", sender_name, exc)
+            return []
+
+    def get_actor_ioc_timeline(self, sender_name: str) -> list:
+        """
+        Compiles a chronological history of all threat entities (IOCs) posted by the actor.
+        """
+        sender_name = sender_name.strip()
+        sql = """
+            SELECT DISTINCT e.entity_type, e.entity_value, m.timestamp, m.id as message_id, m.group_name, m.risk_score
+            FROM message_entities me
+            JOIN entities e ON me.entity_id = e.id
+            JOIN messages m ON me.message_id = m.id
+            WHERE m.sender_name = ?
+            ORDER BY m.timestamp ASC
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                rows = conn.execute(sql, (sender_name,)).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_actor_ioc_timeline failed for %s: %s", sender_name, exc)
+            return []
+
+    def get_messages_since_id(self, last_id: int) -> list:
+        """Retrieve new threat messages since last message row ID."""
+        sql = """
+            SELECT id, timestamp, sender_name, group_name, text, threat_category, risk_score
+            FROM messages
+            WHERE id > ?
+            ORDER BY id ASC
+            LIMIT 100
+        """
+        try:
+            with get_db(self.db_path) as conn:
+                rows = conn.execute(sql, (last_id,)).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_messages_since_id failed for ID %d: %s", last_id, exc)
+            return []
+
+
 
 
 

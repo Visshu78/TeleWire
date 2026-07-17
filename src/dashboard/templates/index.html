@@ -53,6 +53,9 @@
     <a class="nav-item" id="nav-map" onclick="showSection('map')">
       <span class="nav-icon">🗺️</span> Map Intel
     </a>
+    <a class="nav-item" id="nav-warroom" onclick="showSection('warroom')">
+      <span class="nav-icon">🚨</span> War Room
+    </a>
     <a class="nav-item" id="nav-actors" onclick="showSection('actors')">
       <span class="nav-icon">👤</span> Actor Profiles
     </a>
@@ -542,6 +545,62 @@
     </div>
   </section>
 
+  <!-- ════════════════ WAR ROOM ════════════════ -->
+  <section id="section-warroom" class="section">
+    <div class="section-header">
+      <h2>🚨 SOC Operations War Room</h2>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <label class="switch" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #94a3b8; user-select: none;">
+          <input type="checkbox" id="warroom-sound-toggle" checked style="cursor: pointer; transform: scale(1.15);">
+          🔊 Audio Alarms Enabled
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="clearWarRoomFeed()" style="border-color: rgba(239,68,68,0.3); color: #ef4444;">Clear Log</button>
+      </div>
+    </div>
+    <p class="section-desc muted">Real-time threat monitoring stream and live cybersecurity alerts.</p>
+
+    <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
+      <div class="stat-card accent-red" id="warroom-alert-flash-card" style="transition: all 0.3s ease;">
+        <div class="stat-icon">🔔</div>
+        <div class="stat-body">
+          <div class="stat-value" id="warroom-critical-count">0</div>
+          <div class="stat-label">Critical Alerts (Risk &ge; 85)</div>
+        </div>
+      </div>
+      <div class="stat-card accent-orange">
+        <div class="stat-icon">⚠️</div>
+        <div class="stat-body">
+          <div class="stat-value" id="warroom-high-count">0</div>
+          <div class="stat-label">High Alerts (60 &le; Risk &lt; 85)</div>
+        </div>
+      </div>
+      <div class="stat-card accent-blue">
+        <div class="stat-icon">📊</div>
+        <div class="stat-body">
+          <div class="stat-value" id="warroom-total-streamed">0</div>
+          <div class="stat-label">Total Streamed Today</div>
+        </div>
+      </div>
+      <div class="stat-card accent-green">
+        <div class="stat-icon">⚡</div>
+        <div class="stat-body">
+          <div class="stat-value" id="warroom-stream-status">Active</div>
+          <div class="stat-label">Operations Feed Link</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass-card" style="padding: 15px; background: rgba(5, 5, 10, 0.6); border: 1px solid rgba(239, 68, 68, 0.15); min-height: 480px; display: flex; flex-direction: column;">
+      <h4 style="margin: 0 0 12px 0; color: #f87171; display: flex; align-items: center; gap: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
+        <span class="pulse-indicator" id="warroom-pulse" style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #ef4444;"></span>
+        Live Operational Stream
+      </h4>
+      <div id="warroom-log-feed" style="flex: 1; max-height: 450px; overflow-y: auto; padding-right: 5px; font-family: monospace; font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="color: #64748b; font-style: italic; text-align: center; padding-top: 50px;">Waiting for incoming message stream...</div>
+      </div>
+    </div>
+  </section>
+
   <!-- ════════════════ ACTOR PROFILES ════════════════ -->
   <section id="section-actors" class="section">
     <div class="campaigns-layout">
@@ -668,6 +727,28 @@
               <div id="dossier-pivots-panel" style="display:none; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; margin-top: 14px;">
                 <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #22d3ee; text-transform: uppercase; letter-spacing: 0.5px;">🔗 OSINT Pivot Links (Open Manually)</h4>
                 <div id="d-pivots" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Advanced OSINT Analysis: Timeline & Aliases Tabs -->
+          <div class="glass-card" style="padding: 15px; margin-bottom: 20px; background: rgba(0,0,0,0.15); border: 1px solid rgba(167, 139, 250, 0.15); border-radius: 8px;">
+            <div class="tab-header" style="display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 12px; gap: 15px; padding-bottom: 2px;">
+              <span id="actor-tab-btn-timeline" class="actor-tab-btn active" onclick="switchActorSubTab('timeline')" style="padding-bottom: 6px; font-size: 12px; font-weight: bold; color: #a78bfa; cursor: pointer; border-bottom: 2px solid #a78bfa; transition: all 0.2s;">📜 IOC Timeline</span>
+              <span id="actor-tab-btn-aliases" class="actor-tab-btn" onclick="switchActorSubTab('aliases')" style="padding-bottom: 6px; font-size: 12px; font-weight: bold; color: #94a3b8; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s;">🎭 Suspected Aliases</span>
+            </div>
+
+            <!-- IOC Timeline Tab Content -->
+            <div id="actor-tab-content-timeline" class="actor-tab-content" style="max-height: 250px; overflow-y: auto; display: block;">
+              <div id="actor-timeline-list" style="display: flex; flex-direction: column; gap: 8px; font-family: monospace; font-size: 11px;">
+                <div style="color: #64748b; font-style: italic; font-size: 11px; padding: 10px 0;">No timeline records found.</div>
+              </div>
+            </div>
+
+            <!-- Suspected Aliases Tab Content -->
+            <div id="actor-tab-content-aliases" class="actor-tab-content" style="max-height: 250px; overflow-y: auto; display: none;">
+              <div id="actor-aliases-list" style="display: flex; flex-direction: column; gap: 8px; font-size: 11px;">
+                <div style="color: #64748b; font-style: italic; font-size: 11px; padding: 10px 0;">Analyzing alias correlations...</div>
               </div>
             </div>
           </div>

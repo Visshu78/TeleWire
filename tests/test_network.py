@@ -166,6 +166,47 @@ class TestNetworkIntelligence(unittest.TestCase):
         self.assertEqual(loopback_coords[0], None)
         self.assertIn("Loopback", loopback_coords[2])
 
+    def test_actor_aliases_and_timeline(self):
+        # Seed mock messages from Alice and fraudster sharing an entity
+        msg_alice = {
+            "message_id": 200, "group_id": 999, "group_name": "Group 999", "sender_name": "Alice",
+            "sender_phone": None, "text": "Pay BTC to 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "language": "en",
+            "is_forwarded": 0, "forward_from_name": None, "forward_from_id": None, "matched_keyword": None,
+            "fuzzy_score": 0.0, "is_matched": 0, "timestamp": "2026-07-03T10:15:30+00:00", "hash": "alicehash"
+        }
+        msg_fraudster = {
+            "message_id": 201, "group_id": 999, "group_name": "Group 999", "sender_name": "fraudster",
+            "sender_phone": None, "text": "Same wallet here: 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "language": "en",
+            "is_forwarded": 0, "forward_from_name": None, "forward_from_id": None, "matched_keyword": None,
+            "fuzzy_score": 0.0, "is_matched": 0, "timestamp": "2026-07-03T10:17:30+00:00", "hash": "fraudhash"
+        }
+        self.db.insert_messages_batch([msg_alice, msg_fraudster])
+        
+        # Look up correct sqlite auto-increment row IDs
+        hash_map = self.db.get_message_ids_by_hashes(["alicehash", "fraudhash"])
+        alice_row_id = hash_map["alicehash"]
+        fraud_row_id = hash_map["fraudhash"]
+        
+        # Link entities
+        self.db.save_message_entities(alice_row_id, [{"type": "crypto_btc", "value": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "position": 11}], "2026-07-03T10:15:30+00:00")
+        self.db.save_message_entities(fraud_row_id, [{"type": "crypto_btc", "value": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "position": 17}], "2026-07-03T10:17:30+00:00")
+        
+        # Verify leak checks lookup
+        leak = self.db.lookup_leak_entity("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
+        self.assertIsNotNone(leak)
+        self.assertIn("Silk Road", leak["source_leak"])
+        
+        # Verify timeline
+        timeline = self.db.get_actor_ioc_timeline("Alice")
+        self.assertGreater(len(timeline), 0)
+        self.assertEqual(timeline[0]["entity_value"], "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
+        
+        # Verify suspected aliases linking
+        aliases = self.db.get_actor_aliases("Alice")
+        self.assertGreater(len(aliases), 0)
+        self.assertEqual(aliases[0]["sender_name"], "fraudster")
+        self.assertGreaterEqual(aliases[0]["confidence"], 50)
+        self.assertIn("Shared Crypto Wallet", aliases[0]["reasons"][0])
 
 
 if __name__ == "__main__":

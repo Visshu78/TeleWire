@@ -239,6 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadGroupsIntoDropdowns();
   loadAccountsIntoFilterDropdown();
   startAutoRefresh();
+  initWarRoomLoop();
 });
 
 function startAutoRefresh() {
@@ -290,6 +291,7 @@ function showSection(name) {
     campaigns: "Campaign Intel",
     network:   "Network Intel",
     map:       "Map Intel",
+    warroom:   "SOC Operations War Room",
     actors:    "Actor Profiles",
     cases:     "Case Files",
     health:    "Pipeline Health",
@@ -302,6 +304,7 @@ function showSection(name) {
   if (name === "campaigns")  loadCampaigns();
   if (name === "network")    loadNetworkIntel();
   if (name === "map")        loadThreatMap();
+  if (name === "warroom")    loadWarRoomSection();
   if (name === "actors")     loadActors();
   if (name === "cases")      loadCasesAndWatchlists();
   if (name === "health")     loadHealth();
@@ -816,9 +819,12 @@ function renderEntityItemMarkup(ent) {
        </button>`
     : `<div class="entity-item-value">${e(ent.entity_value)}</div>`;
 
+  const elementId = `entity-peeker-leak-${ent.id}-${Math.floor(Math.random()*1000)}`;
+  setTimeout(() => checkAndRenderLeakWarning(elementId, ent.entity_value), 10);
+
   return `
     <div class="${itemClass}">
-      <div class="entity-item-header">
+      <div class="entity-item-header" id="${elementId}">
         <span>${ent.entity_type.replace("crypto_", "").toUpperCase()}</span>
         ${isSanctioned ? '<span class="sanctioned-badge">⚠️ Sanctioned</span>' : ""}
       </div>
@@ -1923,6 +1929,9 @@ async function selectActor(idx) {
     // Fetch behavior fingerprint
     const behavior = await fetch(`/api/actors/behavior?id=${encodeURIComponent(a.sender_id)}`).then(r => r.json());
     renderActorBehaviorFingerprint(behavior);
+
+    // Reload active sub-tab (Timeline or Aliases)
+    switchActorSubTab(currentActorSubTab);
   } catch (e) {
     console.error("Failed to load actor messages:", e);
     listContainer.innerHTML = `<div class="loading-cell">Failed to load messages.</div>`;
@@ -3421,4 +3430,291 @@ async function sendTestAlert() {
     showToast("Network error during test alert.", "error");
   }
 }
+
+
+// ── Advanced SOCMINT Functions ────────────────────────────────────────────────
+let warroomLastId = 0;
+let warroomCriticalCount = 0;
+let warroomHighCount = 0;
+let warroomTotalCount = 0;
+let warroomActiveLog = [];
+let currentActorSubTab = 'timeline';
+
+function initWarRoomLoop() {
+  // Fetch initial updates
+  pollWarRoom();
+  // Set interval to poll every 3 seconds
+  setInterval(pollWarRoom, 3000);
+}
+
+async function pollWarRoom() {
+  try {
+    const newMsgs = await fetch(`/api/war-room/updates?last_id=${warroomLastId}`).then(r => r.json());
+    if (newMsgs && newMsgs.length > 0) {
+      newMsgs.forEach(msg => {
+        warroomLastId = Math.max(warroomLastId, msg.id);
+        warroomTotalCount++;
+        
+        let severity = "low";
+        if (msg.risk_score >= 85) {
+          severity = "critical";
+          warroomCriticalCount++;
+          triggerWarRoomAlert(msg);
+        } else if (msg.risk_score >= 60) {
+          severity = "high";
+          warroomHighCount++;
+        }
+        
+        warroomActiveLog.unshift({ ...msg, severity });
+      });
+      
+      // Limit memory list to 100 rows
+      if (warroomActiveLog.length > 100) {
+        warroomActiveLog = warroomActiveLog.slice(0, 100);
+      }
+      
+      updateWarRoomUI();
+    }
+  } catch (err) {
+    console.error("War Room polling error:", err);
+  }
+}
+
+function updateWarRoomUI() {
+  // Update counts
+  const critEl = document.getElementById("warroom-critical-count");
+  const highEl = document.getElementById("warroom-high-count");
+  const totalEl = document.getElementById("warroom-total-streamed");
+  const feedEl = document.getElementById("warroom-log-feed");
+  
+  if (critEl) critEl.textContent = warroomCriticalCount;
+  if (highEl) highEl.textContent = warroomHighCount;
+  if (totalEl) totalEl.textContent = warroomTotalCount;
+  
+  if (feedEl) {
+    if (warroomActiveLog.length === 0) {
+      feedEl.innerHTML = `<div style="color: #64748b; font-style: italic; text-align: center; padding-top: 50px;">Waiting for incoming message stream...</div>`;
+      return;
+    }
+    
+    feedEl.innerHTML = warroomActiveLog.map(msg => {
+      let color = "#94a3b8";
+      let border = "rgba(255,255,255,0.03)";
+      let label = "INFO";
+      if (msg.severity === "critical") {
+        color = "#f87171";
+        border = "rgba(239, 68, 68, 0.25)";
+        label = "CRITICAL ALERT";
+      } else if (msg.severity === "high") {
+        color = "#fb923c";
+        border = "rgba(249, 115, 22, 0.2)";
+        label = "WARNING";
+      }
+      
+      return `
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid ${border}; border-left: 4px solid ${color}; padding: 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 4px; transition: all 0.3s;">
+          <div style="display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; color: ${color};">
+            <span>[${label}] Risk Score: ${msg.risk_score ? msg.risk_score.toFixed(1) : '0.0'}</span>
+            <span style="color: #64748b;">${fmtTs(msg.timestamp)}</span>
+          </div>
+          <div style="color: #e2e8f0; font-size: 11px;">
+            <strong>${e(msg.sender_name || 'Anonymous')}</strong> in <strong>${e(msg.group_name || 'Private Channel')}</strong>: 
+            <span style="color: #cbd5e1;">${e(msg.text)}</span>
+          </div>
+          ${msg.threat_category ? `<div style="font-size: 10px; color: #a78bfa;">Threat Classification: ${e(msg.threat_category)}</div>` : ''}
+        </div>
+      `;
+    }).join("");
+  }
+}
+
+function triggerWarRoomAlert(msg) {
+  // Flash stats card red
+  const flashCard = document.getElementById("warroom-alert-flash-card");
+  if (flashCard) {
+    flashCard.style.background = "rgba(239, 68, 68, 0.25)";
+    flashCard.style.borderColor = "#ef4444";
+    setTimeout(() => {
+      flashCard.style.background = "";
+      flashCard.style.borderColor = "";
+    }, 1500);
+  }
+  
+  // Play browser synthesizer sound if enabled
+  const soundToggle = document.getElementById("warroom-sound-toggle");
+  if (soundToggle && soundToggle.checked) {
+    playWarRoomAlertSound();
+  }
+}
+
+function playWarRoomAlertSound() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    oscillator.type = "sine";
+    // Play dual beep tone
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+    gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+    oscillator.start();
+    
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+    oscillator.stop(audioCtx.currentTime + 0.35);
+  } catch (err) {
+    console.warn("Web Audio Context not supported or allowed yet:", err);
+  }
+}
+
+function clearWarRoomFeed() {
+  warroomActiveLog = [];
+  warroomCriticalCount = 0;
+  warroomHighCount = 0;
+  updateWarRoomUI();
+}
+
+function loadWarRoomSection() {
+  updateWarRoomUI();
+}
+
+// ── Actor Details Advanced Tabs ────────────────────────────────────────────────
+function switchActorSubTab(tabName) {
+  currentActorSubTab = tabName;
+  
+  // Manage CSS classes
+  document.querySelectorAll(".actor-tab-btn").forEach(btn => {
+    btn.classList.remove("active");
+    btn.style.color = "#94a3b8";
+    btn.style.borderBottomColor = "transparent";
+  });
+  
+  document.querySelectorAll(".actor-tab-content").forEach(content => {
+    content.style.display = "none";
+  });
+  
+  const activeBtn = document.getElementById(`actor-tab-btn-${tabName}`);
+  if (activeBtn) {
+    activeBtn.classList.add("active");
+    activeBtn.style.color = "#a78bfa";
+    activeBtn.style.borderBottomColor = "#a78bfa";
+  }
+  
+  const activeContent = document.getElementById(`actor-tab-content-${tabName}`);
+  if (activeContent) {
+    activeContent.style.display = "block";
+  }
+  
+  // Reload tab values
+  const activeCard = document.querySelector(".actor-card.active");
+  if (!activeCard) return;
+  const name = activeCard.dataset.name;
+  
+  if (tabName === "timeline") {
+    loadActorTimeline(name);
+  } else if (tabName === "aliases") {
+    loadActorAliases(name);
+  }
+}
+
+async function loadActorTimeline(actorName) {
+  const container = document.getElementById("actor-timeline-list");
+  if (!container) return;
+  
+  container.innerHTML = `<div style="color: #64748b; font-style: italic; font-size: 11px;">Loading timeline...</div>`;
+  
+  try {
+    const list = await fetch(`/api/actors/ioc-timeline?id=${encodeURIComponent(actorName)}`).then(r => r.json());
+    if (!list || list.length === 0) {
+      container.innerHTML = `<div style="color: #64748b; font-style: italic; font-size: 11px; padding: 10px 0;">No timeline records found.</div>`;
+      return;
+    }
+    
+    container.innerHTML = list.map(item => {
+      let icon = "🌐";
+      let name = "IP";
+      if (item.entity_type === "phone_number") {
+        icon = "📞";
+        name = "Phone";
+      } else if (item.entity_type.startsWith("crypto_")) {
+        icon = "₿";
+        name = "Wallet";
+      } else if (item.entity_type === "upi_id") {
+        icon = "💳";
+        name = "UPI";
+      } else if (item.entity_type === "email") {
+        icon = "📧";
+        name = "Email";
+      } else if (item.entity_type === "telegram_handle") {
+        icon = "👤";
+        name = "Handle";
+      }
+      
+      return `
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 8px; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+          <div>
+            <span style="margin-right: 5px;">${icon}</span>
+            <span style="color: #94a3b8;">${name}:</span>
+            <strong style="color: #e2e8f0; margin-left: 4px;">${e(item.entity_value)}</strong>
+            <div style="font-size: 9px; color: #64748b; margin-top: 2px;">In: ${e(item.group_name || 'Channel')} | Risk: ${item.risk_score ? item.risk_score.toFixed(0) : '0'}</div>
+          </div>
+          <span style="font-size: 9px; color: #64748b; white-space: nowrap;">${fmtTs(item.timestamp)}</span>
+        </div>
+      `;
+    }).join("");
+  } catch (err) {
+    container.innerHTML = `<div style="color: #ef4444; font-size: 11px;">Failed to load timeline.</div>`;
+  }
+}
+
+async function loadActorAliases(actorName) {
+  const container = document.getElementById("actor-aliases-list");
+  if (!container) return;
+  
+  container.innerHTML = `<div style="color: #64748b; font-style: italic; font-size: 11px;">Analyzing correlations...</div>`;
+  
+  try {
+    const list = await fetch(`/api/actors/aliases?id=${encodeURIComponent(actorName)}`).then(r => r.json());
+    if (!list || list.length === 0) {
+      container.innerHTML = `<div style="color: #64748b; font-style: italic; font-size: 11px; padding: 10px 0;">No suspected aliases identified.</div>`;
+      return;
+    }
+    
+    container.innerHTML = list.map(item => {
+      const reasonsList = item.reasons.map(r => `<div style="font-size: 10px; color: #94a3b8; padding-left: 10px;">• ${e(r)}</div>`).join("");
+      let levelColor = "#ef4444";
+      if (item.confidence < 50) levelColor = "#fb923c";
+      
+      return `
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(167,139,250,0.1); border-left: 3px solid ${levelColor}; padding: 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <strong style="color: #e2e8f0; font-size: 12px;">👤 ${e(item.sender_name)}</strong>
+            <span style="font-weight: bold; color: ${levelColor}; font-size: 11px;">${item.confidence}% Match</span>
+          </div>
+          <div style="font-size: 10px; color: #64748b;">Confidence weight factors:</div>
+          ${reasonsList}
+        </div>
+      `;
+    }).join("");
+  } catch (err) {
+    container.innerHTML = `<div style="color: #ef4444; font-size: 11px;">Failed to load aliases.</div>`;
+  }
+}
+
+async function checkAndRenderLeakWarning(elementId, value) {
+  try {
+    const hit = await fetch(`/api/entities/leak-check?value=${encodeURIComponent(value)}`).then(r => r.json());
+    if (hit) {
+      const el = document.getElementById(elementId);
+      if (el) {
+        el.innerHTML += ` <span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 1px 4px; border-radius: 4px; font-size: 9px; font-weight: bold; margin-left: 6px;" title="${e(hit.details)}">⚠️ BREACHED (${e(hit.source_leak)})</span>`;
+      }
+    }
+  } catch (err) {
+    // Ignore error silently
+  }
+}
+
 
