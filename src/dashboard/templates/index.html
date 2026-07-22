@@ -834,12 +834,17 @@
               <span id="case-profile-date" style="font-family: monospace; font-size: 11px; color: #94a3b8;"></span>
             </div>
             <div style="display: flex; gap: 10px;">
+              <button class="btn btn-sm btn-primary" id="btn-generate-ai-brief" onclick="generateAiBrief()" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); border-color: #a78bfa;">🤖 AI Threat Brief</button>
               <button class="btn btn-sm btn-ghost" id="btn-download-briefing" onclick="downloadCaseBriefing()">📥 Download Briefing</button>
               <button class="btn btn-sm btn-ghost" id="btn-delete-case" onclick="deleteCurrentCase()" style="color: #ef4444; border-color: rgba(239,68,68,0.2);">🗑️ Close Case</button>
             </div>
           </div>
           
           <p id="case-profile-desc" style="margin: 0 0 20px 0; color: #ccc; font-size: 13px; line-height: 1.5;"></p>
+
+          <!-- AI Threat Briefing Container -->
+          <div id="case-ai-brief-result" style="display: none; padding: 16px; margin-bottom: 20px; border: 1px solid rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.04); border-radius: 8px; max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: #e2e8f0; white-space: pre-wrap; font-family: system-ui, sans-serif;"></div>
+
 
           <h3 style="margin: 20px 0 10px 0; color: #a78bfa; font-size: 13px; text-transform: uppercase;">Compiled Intelligence Inventory</h3>
           <div id="case-items-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; padding-right: 6px;"></div>
@@ -874,6 +879,17 @@
             <button id="modal-btn-translate" class="btn btn-sm btn-ghost" onclick="translateMessage()" style="padding: 2px 8px; font-size: 11px; display: none;">🌐 Translate</button>
           </div>
           <p id="modal-text" style="white-space: pre-wrap; word-break: break-all; margin: 0;"></p>
+          <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <button id="modal-btn-find-similar-msg" class="btn btn-sm btn-ghost" onclick="findSimilarMessages()" style="font-size: 11px;">🔍 Find Similar Messages</button>
+          </div>
+        </div>
+        <div id="modal-diff-box" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(251, 146, 60, 0.3); background: rgba(251, 146, 60, 0.04);">
+          <h4 style="color: #fb923c;">Campaign Stylometric Diff (vs Base Campaign Text)</h4>
+          <p id="modal-diff-text" style="white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px; line-height: 1.5; color: #f1f5f9;"></p>
+        </div>
+        <div id="modal-similar-messages-container" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(167, 139, 250, 0.25); background: rgba(0, 0, 0, 0.2);">
+          <h4 style="color: #a78bfa; margin-bottom: 8px;">Semantically Similar Messages (FAISS Embedding Matches)</h4>
+          <div id="modal-similar-messages-list" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;"></div>
         </div>
         <div id="modal-translation-box" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(167, 139, 250, 0.25); background: rgba(167, 139, 250, 0.04);">
           <h4 style="color: #c4b5fd;">English Translation</h4>

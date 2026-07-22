@@ -207,3 +207,61 @@ class SemanticProcessor:
         except Exception as exc:
             logger.error("process_message_semantics failed for message %d: %s", message_row_id, exc)
             return "", threat_cat
+
+    def search_similar_messages(self, text: str, limit: int = 10) -> list[dict]:
+        """
+        Embeds the query text and performs Cosine Similarity search on the FAISS index.
+        Returns a list of matching message dicts from the database.
+        """
+        if not text or not text.strip() or self.index is None or self.index.ntotal == 0:
+            return []
+        try:
+            emb = self.model.encode(text, convert_to_numpy=True)
+            norm = np.linalg.norm(emb)
+            if norm < 1e-12:
+                return []
+            emb_norm = emb / norm
+            vector = np.array([emb_norm], dtype=np.float32)
+            
+            search_k = min(limit * 2, self.index.ntotal)
+            D, I = self.index.search(vector, search_k)
+            
+            scores = D[0]
+            indices = I[0]
+            
+            results = []
+            with get_db(self.db.db_path) as conn:
+                for score, idx in zip(scores, indices):
+                    if idx == -1 or idx >= len(self.index_to_msg_id):
+                        continue
+                    msg_id = self.index_to_msg_id[idx]
+                    row = conn.execute(
+                        "SELECT id, sender_name, sender_id, group_name, timestamp, text, risk_score, threat_category, campaign_id FROM messages WHERE id = ?",
+                        (msg_id,)
+                    ).fetchone()
+                    if row:
+                        results.append({
+                            "id": row["id"],
+                            "sender_name": row["sender_name"],
+                            "sender_id": row["sender_id"],
+                            "group_name": row["group_name"],
+                            "timestamp": row["timestamp"],
+                            "text": row["text"],
+                            "risk_score": row["risk_score"],
+                            "threat_category": row["threat_category"],
+                            "campaign_id": row["campaign_id"],
+                            "similarity": float(score)
+                        })
+            seen = set()
+            deduped = []
+            for r in results:
+                if r["id"] not in seen:
+                    seen.add(r["id"])
+                    deduped.append(r)
+                if len(deduped) >= limit:
+                    break
+            return deduped
+        except Exception as exc:
+            logger.error("search_similar_messages failed: %s", exc)
+            return []
+

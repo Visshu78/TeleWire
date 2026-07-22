@@ -593,7 +593,7 @@ function openMessageDetail(index) {
   document.getElementById("modal-campaign").textContent = m.campaign_id || "None";
   document.getElementById("modal-risk-score").innerHTML = getRiskScoreBadge(m.risk_score);
 
-  // Reset Translation UI
+  // Reset Translation & Similar UI
   const transBox = document.getElementById("modal-translation-box");
   const transText = document.getElementById("modal-translation-text");
   const transBtn = document.getElementById("modal-btn-translate");
@@ -608,6 +608,30 @@ function openMessageDetail(index) {
       transBtn.style.display = "none";
     }
   }
+
+  const simContainer = document.getElementById("modal-similar-messages-container");
+  const simList = document.getElementById("modal-similar-messages-list");
+  if (simContainer) simContainer.style.display = "none";
+  if (simList) simList.innerHTML = "";
+
+  const diffBox = document.getElementById("modal-diff-box");
+  const diffText = document.getElementById("modal-diff-text");
+  if (diffBox) diffBox.style.display = "none";
+  if (diffText) diffText.innerHTML = "";
+
+  // Asynchronously check for campaign text differences
+  if (m.campaign_id && m.id) {
+    fetch(`/api/messages/${m.id}/diff`)
+      .then(r => r.json())
+      .then(d => {
+        if (d && d.has_diff && diffBox && diffText) {
+          diffText.innerHTML = d.diff_html;
+          diffBox.style.display = "block";
+        }
+      })
+      .catch(() => {});
+  }
+
   
   // Highlight entities
   const text = m.text || "";
@@ -3910,6 +3934,171 @@ function renderDashboardWordCloud() {
     });
   });
 }
+
+// ── AI Threat Brief Generator ──
+async function generateAiBrief() {
+  if (!window.selectedCaseId) return;
+  const resultDiv = document.getElementById("case-ai-brief-result");
+  const btn = document.getElementById("btn-generate-ai-brief");
+  if (!resultDiv) return;
+
+  resultDiv.style.display = "block";
+  resultDiv.textContent = "⏳ Synthesizing case metrics and compiling AI Threat Briefing via LLM Engine...";
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/cases/${window.selectedCaseId}/ai-brief`, { method: "POST" }).then(r => r.json());
+    if (res && res.ai_brief) {
+      resultDiv.textContent = res.ai_brief;
+    } else {
+      resultDiv.textContent = "❌ Failed to generate AI Threat Brief.";
+    }
+  } catch (err) {
+    console.error(err);
+    resultDiv.textContent = "❌ Error connecting to AI Threat Briefing service.";
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Translation Service ──
+async function translateMessage() {
+  if (!window.currentMessageId) return;
+  const btn = document.getElementById("modal-btn-translate");
+  const transBox = document.getElementById("modal-translation-box");
+  const transText = document.getElementById("modal-translation-text");
+  if (!btn || !transBox || !transText) return;
+
+  btn.disabled = true;
+  btn.textContent = "⏳ Translating...";
+
+  try {
+    const res = await fetch(`/api/messages/${window.currentMessageId}/translate`).then(r => r.json());
+    if (res && res.translated_text) {
+      transText.textContent = res.translated_text;
+      transBox.style.display = "block";
+      btn.style.display = "none";
+    } else if (res && res.error) {
+      showToast(`Translation error: ${res.error}`, "error");
+      btn.disabled = false;
+      btn.textContent = "🌐 Translate";
+    }
+  } catch (e) {
+    console.error(e);
+    showToast("Translation request failed.", "error");
+    btn.disabled = false;
+    btn.textContent = "🌐 Translate";
+  }
+}
+
+// ── Semantic Similarity Search ──
+async function findSimilarMessages() {
+  if (!window.currentMessageId) return;
+  const simContainer = document.getElementById("modal-similar-messages-container");
+  const simList = document.getElementById("modal-similar-messages-list");
+  if (!simContainer || !simList) return;
+
+  simContainer.style.display = "block";
+  simList.innerHTML = `<div class="loading-cell" style="font-size:11px;">Searching semantically similar messages via FAISS embeddings...</div>`;
+
+  try {
+    const res = await fetch(`/api/messages/${window.currentMessageId}/similar`).then(r => r.json());
+    if (!res || !res.length) {
+      simList.innerHTML = `<div class="muted" style="font-size:11px; font-style:italic;">No similar messages found in index.</div>`;
+      return;
+    }
+    const filtered = res.filter(x => x.id !== window.currentMessageId);
+    if (!filtered.length) {
+      simList.innerHTML = `<div class="muted" style="font-size:11px; font-style:italic;">No other similar messages found in index.</div>`;
+      return;
+    }
+    simList.innerHTML = filtered.map(m => `
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 6px 8px; border-radius: 4px; display: flex; flex-direction: column; gap: 2px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#94a3b8;">
+          <span>📅 ${fmtTs(m.timestamp)} | 👥 ${e(m.group_name)} | 👤 ${e(m.sender_name)}</span>
+          <span style="font-weight:bold; color:#34d399;">${(m.similarity * 100).toFixed(0)}% Similarity</span>
+        </div>
+        <div style="color:#e2e8f0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; cursor:pointer; font-size:11px;" onclick="openMessageFromSimilar(${m.id})" title="Click to view message details">
+          "${e(m.text)}"
+        </div>
+      </div>
+    `).join("");
+  } catch (e) {
+    console.error(e);
+    simList.innerHTML = `<div style="color:#ef4444; font-size:11px;">Similarity search failed.</div>`;
+  }
+}
+
+async function openMessageFromSimilar(id) {
+  try {
+    const res = await fetch(`/api/messages/detail/${id}`).then(r => r.json());
+    if (res && !res.error) {
+      if (!window.currentMessages) window.currentMessages = [];
+      const existingIdx = window.currentMessages.findIndex(x => x.id === id);
+      if (existingIdx !== -1) {
+        openMessageDetail(existingIdx);
+      } else {
+        window.currentMessages.push(res);
+        openMessageDetail(window.currentMessages.length - 1);
+      }
+    } else {
+      showToast("Could not retrieve target message details.", "error");
+    }
+  } catch (e) {
+    console.error(e);
+    showToast("Failed to open message.", "error");
+  }
+}
+
+// ── IOC Cross-Pivot Panel ──
+async function showIocPivot(type, value) {
+  const pane = document.getElementById("modal-pivot-sidebar");
+  const subtitle = document.getElementById("modal-pivot-subtitle");
+  const loading = document.getElementById("modal-pivot-loading");
+  const list = document.getElementById("modal-pivot-list");
+  if (!pane || !subtitle || !loading || !list) return;
+
+  pane.style.display = "block";
+  subtitle.textContent = `Matching ${type.toUpperCase()}: ${value}`;
+  loading.style.display = "block";
+  list.innerHTML = "";
+
+  try {
+    const res = await fetch(`/api/ioc/pivot?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`).then(r => r.json());
+    loading.style.display = "none";
+
+    if (!res || !res.length) {
+      list.innerHTML = `<div class="muted" style="font-size:11px; font-style:italic;">No other messages containing this IOC.</div>`;
+      return;
+    }
+
+    list.innerHTML = res.map(m => `
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(167,139,250,0.15); padding: 8px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 4px;" onclick="openMessageFromSimilar(${m.id})">
+        <div style="display:flex; justify-content:space-between; font-size:9px; color:#94a3b8;">
+          <span>📅 ${fmtTs(m.timestamp)}</span>
+          <span style="color:#a78bfa; font-weight:bold;">${e(m.group_name)}</span>
+        </div>
+        <div style="font-size:11px; color:#e2e8f0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">
+          ${e(m.text)}
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:9px; color:#64748b;">
+          <span>👤 ${e(m.sender_name)}</span>
+          <span>Risk: ${m.risk_score ? m.risk_score.toFixed(0) : '0'}</span>
+        </div>
+      </div>
+    `).join("");
+  } catch (err) {
+    console.error(err);
+    loading.style.display = "none";
+    list.innerHTML = `<div style="color:#ef4444; font-size:11px;">Pivot search failed.</div>`;
+  }
+}
+
+function closeModalPivotPane() {
+  const pane = document.getElementById("modal-pivot-sidebar");
+  if (pane) pane.style.display = "none";
+}
+
 
 // Attach event listener for click on Word Cloud canvas
 document.addEventListener("DOMContentLoaded", () => {

@@ -407,3 +407,138 @@ def compile_case_briefing_html(case_details: dict) -> str:
 </html>
 """
     return html_out
+
+
+def generate_inline_diff(text1: str, text2: str) -> str:
+    """
+    Computes word-level diff between text1 (original/rep text) and text2 (current message text)
+    and returns styled HTML highlighting insertions and deletions.
+    """
+    import difflib
+    import html
+
+    words1 = (text1 or "").split()
+    words2 = (text2 or "").split()
+    matcher = difflib.SequenceMatcher(None, words1, words2)
+    
+    out = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            out.append(html.escape(" ".join(words1[i1:i2])))
+        elif tag == 'replace':
+            del_text = html.escape(" ".join(words1[i1:i2]))
+            ins_text = html.escape(" ".join(words2[j1:j2]))
+            out.append(f'<span style="background:rgba(239,68,68,0.2); color:#f87171; text-decoration:line-through; padding:0 2px; border-radius:2px;">{del_text}</span>')
+            out.append(f'<span style="background:rgba(34,197,94,0.2); color:#4ade80; padding:0 2px; border-radius:2px;">{ins_text}</span>')
+        elif tag == 'delete':
+            del_text = html.escape(" ".join(words1[i1:i2]))
+            out.append(f'<span style="background:rgba(239,68,68,0.2); color:#f87171; text-decoration:line-through; padding:0 2px; border-radius:2px;">{del_text}</span>')
+        elif tag == 'insert':
+            ins_text = html.escape(" ".join(words2[j1:j2]))
+            out.append(f'<span style="background:rgba(34,197,94,0.2); color:#4ade80; padding:0 2px; border-radius:2px;">{ins_text}</span>')
+            
+    return " ".join(out)
+
+
+def generate_ai_brief(case_details: dict) -> str:
+    """
+    Generate an AI Threat Brief summarizing case metrics, threat categories, actors, and IOCs.
+    Uses OpenAI or Ollama if available; falls back to structured rule-based brief.
+    """
+    import os
+    import json
+    import requests
+
+    title = case_details.get("title", "Unnamed Case")
+    desc = case_details.get("description", "No description provided.")
+    items = case_details.get("items", [])
+    
+    messages = [i.get("message_details", {}) for i in items if i.get("item_type") == "message" and i.get("message_details")]
+    wallets = [i.get("item_value") for i in items if i.get("item_type") == "wallet"]
+    actors = [i.get("item_value") for i in items if i.get("item_type") == "actor"]
+
+    # Build prompt context
+    msg_samples = []
+    for m in messages[:10]:
+        msg_samples.append(f"[{m.get('timestamp')}] {m.get('sender_name')} in {m.get('group_name')}: {m.get('text', '')[:120]} (Threat: {m.get('threat_category')}, Risk: {m.get('risk_score')})")
+    
+    prompt = f"""You are an elite OSINT and SOCMINT cyber threat intelligence analyst.
+Write a concise executive intelligence briefing for Case: '{title}'.
+Case Description: {desc}
+Metrics: {len(messages)} messages cataloged, {len(wallets)} crypto wallets tracked, {len(actors)} actor handles.
+
+Tracked Wallets: {', '.join(wallets) if wallets else 'None'}
+Tracked Actors: {', '.join(actors) if actors else 'None'}
+
+Sample Threat Messages:
+""" + "\n".join(msg_samples) + """
+
+Format your response in GitHub-style Markdown with clear sections:
+1. Executive Summary & Core Threat Vector
+2. Operational Patterns & Actor Conduct
+3. Indicators of Compromise (IOCs) & Risk Assessment
+4. Recommended Countermeasures & Next Actions"""
+
+    # Try OpenAI
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            resp = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    # Try Ollama
+    ollama_url = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
+    try:
+        resp = requests.post(
+            ollama_url,
+            json={"model": os.environ.get("OLLAMA_MODEL", "llama3"), "prompt": prompt, "stream": False},
+            timeout=8
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if "response" in data:
+                return data["response"]
+    except Exception:
+        pass
+
+    # Fallback rule-based brief
+    categories = list(set([m.get('threat_category') for m in messages if m.get('threat_category')]))
+    top_cat = categories[0] if categories else "General Threat Operations"
+    avg_score = sum([m.get('risk_score', 0) for m in messages]) / max(len(messages), 1)
+
+    return f"""### 🤖 AI-Generated Intelligence Executive Brief (Rule-Based Synthesis)
+*Notice: LLM API service offline/unconfigured. Generated via TeleWire Analyst Rule Engine.*
+
+#### 1. Executive Summary & Threat Vectors
+Case **{title}** focuses on illicit communications related to **{top_cat}**. 
+Analysis indicates **{len(messages)} key messages** spanning **{len(actors)} identified threat actors**. 
+The operational risk level is evaluated as **{'HIGH' if avg_score > 60 else 'MEDIUM' if avg_score > 30 else 'LOW'}** (Average Threat Score: **{avg_score:.1f}/100**).
+
+#### 2. Actor Conduct & Operational Patterns
+- **Primary Category:** {top_cat}
+- **Tracked Actor Identifiers:** {', '.join([f'`{a}`' for a in actors]) if actors else 'None assigned'}
+- **Activity Dynamics:** Message frequency and cross-group interactions show active campaign distribution with repeat IOC postings.
+
+#### 3. Technical Indicators of Compromise (IOCs)
+- **Crypto Wallet Infrastructure:** {', '.join([f'`{w}`' for w in wallets]) if wallets else 'No financial addresses bound'}
+- **Threat Message Samples Cataloged:** {len(messages)} items inside case inventory.
+
+#### 4. Recommended Action Items
+- Continue monitoring linked actor handles for cross-group forwards.
+- Run dark web leak checks on all associated wallet addresses and mobile numbers.
+- Export case briefing PDF for agency escalation.
+"""
+
