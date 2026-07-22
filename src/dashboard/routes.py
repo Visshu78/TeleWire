@@ -127,8 +127,12 @@ def api_translate_message(msg_id):
         return jsonify({"translated_text": translated})
     except Exception as exc:
         logger.error("Translation failed for message %d: %s", msg_id, exc)
+        return jsonify({"error": str(exc)}), 500
+
+
 @bp.route("/api/messages/detail/<int:msg_id>")
 def api_message_detail(msg_id):
+
     db = _db()
     msg = db.get_message_by_row_id(msg_id)
     if not msg:
@@ -798,7 +802,35 @@ def api_keywords():
 
 @bp.route("/api/keywords/effectiveness")
 def api_keyword_effectiveness():
-    return jsonify(_db().get_keyword_effectiveness())
+    db = _db()
+    from src.storage.database import get_db
+    try:
+        with get_db(db.db_path) as conn:
+            kws = conn.execute("SELECT keyword FROM keywords ORDER BY keyword ASC").fetchall()
+            results = []
+            for kw_row in kws:
+                kw = kw_row["keyword"]
+                stats = conn.execute('''
+                    SELECT 
+                        COUNT(*) as total_hits,
+                        SUM(CASE WHEN risk_score >= 70 THEN 1 ELSE 0 END) as high_risk_hits,
+                        AVG(risk_score) as avg_risk
+                    FROM messages
+                    WHERE matched_keyword = ?
+                ''', (kw,)).fetchone()
+                total_hits = stats["total_hits"] or 0
+                high_risk_hits = stats["high_risk_hits"] or 0
+                avg_risk = stats["avg_risk"] or 0.0
+                results.append({
+                    "keyword": kw,
+                    "total_hits": total_hits,
+                    "high_risk_hits": high_risk_hits,
+                    "avg_risk": avg_risk
+                })
+            return jsonify(results)
+    except Exception as exc:
+        logger.error("api_keyword_effectiveness failed: %s", exc)
+        return jsonify(_db().get_keyword_effectiveness())
 
 
 @bp.route("/api/keywords", methods=["POST"])
@@ -939,81 +971,6 @@ def api_case_ai_brief(case_id):
     from src.processing.reporting_service import generate_ai_brief
     brief_md = generate_ai_brief(details)
     return jsonify({"ai_brief": brief_md})
-
-
-@bp.route("/api/keywords/effectiveness", methods=["GET"])
-def api_keywords_effectiveness():
-    db = _db()
-    from src.storage.database import get_db
-    try:
-        with get_db(db.db_path) as conn:
-            kws = conn.execute("SELECT keyword FROM keywords ORDER BY keyword ASC").fetchall()
-            results = []
-            for kw_row in kws:
-                kw = kw_row["keyword"]
-                stats = conn.execute('''
-                    SELECT 
-                        COUNT(*) as total_hits,
-                        SUM(CASE WHEN risk_score >= 70 THEN 1 ELSE 0 END) as high_risk_hits,
-                        AVG(risk_score) as avg_risk
-                    FROM messages
-                    WHERE matched_keyword = ?
-                ''', (kw,)).fetchone()
-                
-                total_hits = stats["total_hits"] or 0
-                high_risk_hits = stats["high_risk_hits"] or 0
-                avg_risk = stats["avg_risk"] or 0.0
-                
-                results.append({
-                    "keyword": kw,
-                    "total_hits": total_hits,
-                    "high_risk_hits": high_risk_hits,
-                    "avg_risk": avg_risk
-                })
-            return jsonify(results)
-    except Exception as exc:
-        logger.error("api_keywords_effectiveness failed: %s", exc)
-        return jsonify([])
-
-
-@bp.route("/api/ioc/pivot", methods=["GET"])
-def api_ioc_pivot():
-    db = _db()
-    itype = request.args.get("type")
-    val = request.args.get("value")
-    if not itype or not val:
-        return jsonify({"error": "Missing type or value"}), 400
-    
-    from src.storage.database import get_db
-    try:
-        with get_db(db.db_path) as conn:
-            rows = conn.execute('''
-                SELECT DISTINCT m.id, m.sender_name, m.sender_id, m.group_name, m.timestamp, m.text, m.risk_score, m.threat_category
-                FROM messages m
-                JOIN message_entities me ON m.id = me.message_id
-                JOIN entities e ON me.entity_id = e.id
-                WHERE e.entity_type = ? AND e.entity_value = ?
-                ORDER BY m.timestamp DESC
-                LIMIT 50
-            ''', (itype, val)).fetchall()
-            
-            results = []
-            for r in rows:
-                results.append({
-                    "id": r["id"],
-                    "sender_name": r["sender_name"],
-                    "sender_id": r["sender_id"],
-                    "group_name": r["group_name"],
-                    "timestamp": r["timestamp"],
-                    "text": r["text"],
-                    "risk_score": r["risk_score"],
-                    "threat_category": r["threat_category"]
-                })
-            return jsonify(results)
-    except Exception as exc:
-        logger.error("api_ioc_pivot failed: %s", exc)
-        return jsonify([])
-
 
 
 
