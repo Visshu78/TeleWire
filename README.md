@@ -159,6 +159,9 @@ This script streams realistic target channels traffic, extracts test wallet addr
 
 ### 10. Advanced Analytics, Semantic Search & Interactive Pivoting
 *   **FAISS Semantic Similarity Search:** Performs 384-dimensional vector similarity lookup (`all-MiniLM-L6-v2`) to retrieve top semantically related messages across all groups on demand.
+*   **Cross-Group Message Propagation Tracker:** Traces identical copy-paste broadcasts or coordination campaigns over time, mapping their chronological spread sequence and delay offsets (`Origin`, `+5m`, `+2h`, etc.) across groups.
+*   **Threat Category Trend Analysis Charts:** Line chart visualizations bucketed daily showing the trajectory of threat categories over 7, 30, or 90 days.
+*   **STIX 2.1 Threat Intel Case Exporter:** Compiles case artifacts (actor handles, crypto wallets, phone numbers, threat messages) into compliant STIX 2.1 JSON bundles.
 *   **IOC Cross-Pivot Sidebar:** Double-clicking any extracted entity (phone, wallet, UPI, email, handle) queries `message_entities` and opens an in-modal side pane listing all matching messages across monitored channels.
 *   **Stylometric Campaign Message Diff:** Highlights word-level insertions and deletions (`difflib.SequenceMatcher`) between a message and its campaign's base text.
 *   **Keyword Effectiveness Analytics:** Computes hit rates, high-risk matches ($\ge 70$), average threat scores, and rating categories (High Yield, Noisy, Moderate, Inactive) rendered in the Keywords dashboard.
