@@ -479,7 +479,88 @@ Format your response in GitHub-style Markdown with clear sections:
 3. Indicators of Compromise (IOCs) & Risk Assessment
 4. Recommended Countermeasures & Next Actions"""
 
-    # Try OpenAI
+    # 1. Try Groq Cloud (Free Tier: GROQ_API_KEY)
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        try:
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={
+                    "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    # 2. Try Google Gemini API (Free Tier: GEMINI_API_KEY)
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_key}"
+            resp = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}]
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                text_out = data["candidates"][0]["content"]["parts"][0]["text"]
+                return text_out
+        except Exception:
+            pass
+
+    # 3. Try OpenRouter API (Free Models: OPENROUTER_API_KEY)
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        try:
+            resp = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
+                json={
+                    "model": os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-lite-preview-02-05:free"),
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    # 4. Try Hugging Face Inference API (Free Tier: HF_TOKEN)
+    hf_token = os.environ.get("HF_TOKEN")
+    if hf_token:
+        try:
+            resp = requests.post(
+                "https://api-inference.huggingface.co/v1/chat/completions",
+                headers={"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"},
+                json={
+                    "model": os.environ.get("HF_MODEL", "meta-llama/Llama-3.2-3B-Instruct"),
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    # 5. Try OpenAI
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
         try:
@@ -499,7 +580,7 @@ Format your response in GitHub-style Markdown with clear sections:
         except Exception:
             pass
 
-    # Try Ollama
+    # 6. Try Ollama (Local Free LLM)
     ollama_url = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
     try:
         resp = requests.post(
