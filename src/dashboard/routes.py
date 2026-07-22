@@ -927,6 +927,9 @@ def api_case_report(case_id):
         return jsonify({"error": "Case not found"}), 404
     from src.processing.reporting_service import compile_case_briefing_html
     report_html = compile_case_briefing_html(details)
+    return report_html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 @bp.route("/api/cases/<case_id>/ai-brief", methods=["POST"])
 def api_case_ai_brief(case_id):
     db = _db()
