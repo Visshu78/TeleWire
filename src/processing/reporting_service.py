@@ -641,3 +641,142 @@ The operational risk level is evaluated as **{'HIGH' if avg_score > 60 else 'MED
 - Export case briefing PDF for agency escalation.
 """
 
+
+def generate_stix_bundle(case_details: dict) -> dict:
+    """
+    Generate a valid STIX 2.1 Cyber Threat Intelligence JSON bundle from case details.
+    Includes Identity (TeleWire), Threat-Actor, Indicators (wallets, phones, emails),
+    Notes (messages), and Relationships linking them.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    title = case_details.get("title", "Unnamed Case")
+    desc = case_details.get("description", "No description provided.")
+    items = case_details.get("items", [])
+    
+    created_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Base Bundle structure
+    bundle_id = f"bundle--{uuid.uuid4()}"
+    objects = []
+    
+    # 1. Identity Object (The Creator / TeleWire SOCMINT Platform)
+    identity_id = f"identity--{uuid.uuid5(uuid.NAMESPACE_DNS, 'telewire.socmint.org')}"
+    identity = {
+        "type": "identity",
+        "spec_version": "2.1",
+        "id": identity_id,
+        "created": created_time,
+        "modified": created_time,
+        "name": "TeleWire SOCMINT Threat Intelligence Platform",
+        "description": "Automated social media and Telegram threat intelligence ingestion pipeline",
+        "identity_class": "organization"
+    }
+    objects.append(identity)
+    
+    # Extract distinct threat actor names/handles
+    actors = list(set([i.get("item_value") for i in items if i.get("item_type") == "actor" and i.get("item_value")]))
+    actor_map = {} # name -> stix id
+    for act in actors:
+        # Stable UUID for actor based on name/handle
+        act_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"actor.{act}")
+        act_stix_id = f"threat-actor--{act_uuid}"
+        actor_map[act] = act_stix_id
+        
+        objects.append({
+            "type": "threat-actor",
+            "spec_version": "2.1",
+            "id": act_stix_id,
+            "created": created_time,
+            "modified": created_time,
+            "name": act,
+            "description": f"Telegram threat actor identified in case: {title}",
+            "threat_actor_types": ["malicious-actor"],
+            "created_by_ref": identity_id
+        })
+        
+    # Extract distinct IOCs: wallets, phones, emails
+    wallets = list(set([i.get("item_value") for i in items if i.get("item_type") == "wallet" and i.get("item_value")]))
+    ioc_map = {} # value -> stix id
+    
+    # For wallets
+    for w in wallets:
+        w_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"wallet.{w}")
+        w_stix_id = f"indicator--{w_uuid}"
+        ioc_map[w] = w_stix_id
+        
+        objects.append({
+            "type": "indicator",
+            "spec_version": "2.1",
+            "id": w_stix_id,
+            "created": created_time,
+            "modified": created_time,
+            "name": f"Crypto Wallet: {w}",
+            "description": "Cryptocurrency wallet address identified in threat message communications",
+            "pattern": f"[cryptocurrency-wallet:value = '{w}']",
+            "pattern_type": "stix",
+            "pattern_version": "2.1",
+            "valid_from": created_time,
+            "created_by_ref": identity_id
+        })
+        
+        # Link indicators to actors if we can associate them
+        # (For simple case bundles, link each indicator to all threat actors in the same case)
+        for act_stix_id in actor_map.values():
+            rel_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"rel.{w_stix_id}.{act_stix_id}")
+            objects.append({
+                "type": "relationship",
+                "spec_version": "2.1",
+                "id": f"relationship--{rel_uuid}",
+                "created": created_time,
+                "modified": created_time,
+                "relationship_type": "indicates",
+                "source_ref": w_stix_id,
+                "target_ref": act_stix_id,
+                "created_by_ref": identity_id
+            })
+
+    # For messages (represented as Notes with references to indicators & actors)
+    messages = [i.get("message_details", {}) for i in items if i.get("item_type") == "message" and i.get("message_details")]
+    for m in messages:
+        msg_id = m.get("id") or m.get("message_id")
+        text = m.get("text", "")
+        if not text:
+            continue
+        
+        note_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"msg.{msg_id}")
+        note_stix_id = f"note--{note_uuid}"
+        
+        # Find which actors are mentioned/sender
+        sender_name = m.get("sender_name")
+        refs = []
+        if sender_name and sender_name in actor_map:
+            refs.append(actor_map[sender_name])
+            
+        # Add references to matching wallet IOCs mentioned in the text
+        for val, stix_id in ioc_map.items():
+            if val in text:
+                refs.append(stix_id)
+                
+        note = {
+            "type": "note",
+            "spec_version": "2.1",
+            "id": note_stix_id,
+            "created": created_time,
+            "modified": created_time,
+            "abstract": f"Telegram Threat Message (Group: {m.get('group_name')})",
+            "content": f"Sender: {m.get('sender_name')} (ID: {m.get('sender_id')})\nMessage: {text}",
+            "object_refs": refs if refs else [identity_id],
+            "created_by_ref": identity_id
+        }
+        objects.append(note)
+
+    # 4. Return complete STIX Bundle
+    return {
+        "type": "bundle",
+        "id": bundle_id,
+        "objects": objects
+    }
+
+

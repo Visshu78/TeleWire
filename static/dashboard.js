@@ -230,7 +230,7 @@ let autoRefresh   = null;
 let trCurrentPage = 1;
 let trTotal       = 0;
 
-let chartDay, chartKw, chartGrp;
+let chartDay, chartKw, chartGrp, chartTrends;
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -383,7 +383,7 @@ async function loadGroupsIntoDropdowns() {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 async function refreshDashboard() {
-  await Promise.all([refreshStats(), refreshCharts()]);
+  await Promise.all([refreshStats(), refreshCharts(), refreshTrendsChart()]);
   loadHeatmap();
   setLastRefresh();
 }
@@ -613,6 +613,11 @@ function openMessageDetail(index) {
   const simList = document.getElementById("modal-similar-messages-list");
   if (simContainer) simContainer.style.display = "none";
   if (simList) simList.innerHTML = "";
+
+  const propContainer = document.getElementById("modal-propagation-container");
+  const propList = document.getElementById("modal-propagation-list");
+  if (propContainer) propContainer.style.display = "none";
+  if (propList) propList.innerHTML = "";
 
   const diffBox = document.getElementById("modal-diff-box");
   const diffText = document.getElementById("modal-diff-text");
@@ -4120,6 +4125,154 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 });
+
+
+// ── Threat Trends Chart ──
+async function refreshTrendsChart() {
+  const canvas = document.getElementById("chart-trends");
+  if (!canvas) return;
+
+  const rangeEl = document.getElementById("trends-range");
+  const days = rangeEl ? rangeEl.value : 30;
+
+  try {
+    const res = await fetch(`/api/stats/trends?days=${days}`).then(r => r.json());
+    if (!res || !res.labels) return;
+
+    if (chartTrends) chartTrends.destroy();
+
+    const colors = [
+      { border: "#f43f5e", bg: "rgba(244,63,94,0.15)" },  // Scam
+      { border: "#3b82f6", bg: "rgba(59,130,246,0.15)" }, // Weapons
+      { border: "#a855f7", bg: "rgba(168,85,247,0.15)" }, // Cyber
+      { border: "#10b981", bg: "rgba(16,185,129,0.15)" }, // Drugs
+      { border: "#f59e0b", bg: "rgba(245,158,11,0.15)" }, // Mule
+      { border: "#ec4899", bg: "rgba(236,72,153,0.15)" }  // General
+    ];
+
+    const datasets = res.datasets.map((ds, i) => {
+      const color = colors[i % colors.length];
+      return {
+        label: ds.label,
+        data: ds.data,
+        borderColor: color.border,
+        backgroundColor: color.bg,
+        fill: false,
+        tension: 0.3,
+        pointRadius: 3,
+        borderWidth: 2
+      };
+    });
+
+    chartTrends = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: res.labels,
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: "#94a3b8", font: { family: "Inter, sans-serif", size: 10 } }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: "#94a3b8", font: { size: 9 } },
+            grid: { color: "rgba(255,255,255,0.05)" }
+          },
+          y: {
+            ticks: { color: "#94a3b8", font: { size: 9 }, stepSize: 1 },
+            grid: { color: "rgba(255,255,255,0.05)" }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    console.error("refreshTrendsChart failed:", err);
+  }
+}
+
+// ── Cross-Group Message Propagation ──
+async function findMessagePropagation() {
+  if (!window.currentMessageId) return;
+  const container = document.getElementById("modal-propagation-container");
+  const list = document.getElementById("modal-propagation-list");
+  if (!container || !list) return;
+
+  container.style.display = "block";
+  list.innerHTML = `<div class="loading-cell">Tracing propagation sequence across monitored channels...</div>`;
+
+  try {
+    const res = await fetch(`/api/messages/${window.currentMessageId}/propagation`).then(r => r.json());
+    if (!res || !res.length) {
+      list.innerHTML = `<div class="muted">No propagation matches detected.</div>`;
+      return;
+    }
+
+    list.innerHTML = res.map((m, i) => {
+      const isCurrent = m.id === window.currentMessageId;
+      const isOrigin = m.delay === "Origin";
+      const badgeColor = isOrigin ? "#10b981" : "#3b82f6";
+      const borderStyle = isCurrent ? "border: 1px solid rgba(96,165,250,0.5); background: rgba(96,165,250,0.05);" : "";
+
+      return `
+        <div style="position: relative; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 4px; ${borderStyle}">
+          <!-- Chronological Step Node Dot -->
+          <span style="position: absolute; left: -19px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: ${badgeColor}; border: 2px solid #0f172a;"></span>
+          
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #94a3b8;">
+            <span>📅 ${fmtTs(m.timestamp)} | 👥 ${e(m.group_name)}</span>
+            <span style="font-weight: bold; text-transform: uppercase; color: ${badgeColor}; font-size: 9px;">${m.delay}</span>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #e2e8f0; font-size: 11px;">Posted by: <strong>${e(m.sender_name)}</strong></span>
+            <button class="btn btn-sm btn-ghost" onclick="openMessageFromPropagation(${m.id})" style="padding: 1px 6px; font-size: 9px; border-color: rgba(255,255,255,0.1);">View</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  } catch (err) {
+    console.error("findMessagePropagation failed:", err);
+    list.innerHTML = `<div style="color: #ef4444;">Propagation check failed.</div>`;
+  }
+}
+
+async function openMessageFromPropagation(id) {
+  try {
+    const res = await fetch(`/api/messages/detail/${id}`).then(r => r.json());
+    if (res && !res.error) {
+      if (!window.currentMessages) window.currentMessages = [];
+      const existingIdx = window.currentMessages.findIndex(x => x.id === id);
+      if (existingIdx !== -1) {
+        openMessageDetail(existingIdx);
+      } else {
+        window.currentMessages.push(res);
+        openMessageDetail(window.currentMessages.length - 1);
+      }
+    } else {
+      showToast("Could not retrieve target message details.", "error");
+    }
+  } catch (e) {
+    console.error(e);
+    showToast("Failed to open propagation node.", "error");
+  }
+}
+
+// ── STIX Case Export ──
+function exportStixCase() {
+  if (!window.selectedCaseId) {
+    showToast("No case selected for export.", "error");
+    return;
+  }
+  showToast("Compiling STIX 2.1 CTI bundle...", "success");
+  window.location.href = `/api/cases/${window.selectedCaseId}/export-stix`;
+}
+
 
 
 

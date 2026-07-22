@@ -137,6 +137,24 @@
       <div class="chart-card"><div class="chart-header">Top Groups</div><canvas id="chart-groups" height="220"></canvas></div>
     </div>
 
+    <!-- Threat Category Trends Chart -->
+    <div class="glass-card" style="margin-top: 20px; padding: 18px 20px 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <span class="chart-header">📊 Threat Category Trend Analysis</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <label for="trends-range" style="font-size: 11px; color: #94a3b8; font-weight: bold;">Range:</label>
+          <select id="trends-range" onchange="refreshTrendsChart()" style="padding: 4px 8px; background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-size: 11px; cursor: pointer; outline: none;">
+            <option value="7">Last 7 Days</option>
+            <option value="30" selected>Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+          </select>
+        </div>
+      </div>
+      <div style="height: 250px; position: relative;">
+        <canvas id="chart-trends"></canvas>
+      </div>
+    </div>
+
     <!-- Activity Heatmap -->
     <div class="heatmap-card glass-card">
       <div class="heatmap-header">
@@ -836,6 +854,7 @@
             <div style="display: flex; gap: 10px;">
               <button class="btn btn-sm btn-primary" id="btn-generate-ai-brief" onclick="generateAiBrief()" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); border-color: #a78bfa;">🤖 AI Threat Brief</button>
               <button class="btn btn-sm btn-ghost" id="btn-download-briefing" onclick="downloadCaseBriefing()">📥 Download Briefing</button>
+              <button class="btn btn-sm btn-ghost" id="btn-export-stix" onclick="exportStixCase()" style="border-color: rgba(167, 139, 250, 0.35); color: #c4b5fd;">🛡️ Export STIX 2.1</button>
               <button class="btn btn-sm btn-ghost" id="btn-delete-case" onclick="deleteCurrentCase()" style="color: #ef4444; border-color: rgba(239,68,68,0.2);">🗑️ Close Case</button>
             </div>
           </div>
@@ -881,6 +900,7 @@
           <p id="modal-text" style="white-space: pre-wrap; word-break: break-all; margin: 0;"></p>
           <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
             <button id="modal-btn-find-similar-msg" class="btn btn-sm btn-ghost" onclick="findSimilarMessages()" style="font-size: 11px;">🔍 Find Similar Messages</button>
+            <button id="modal-btn-propagation" class="btn btn-sm btn-ghost" onclick="findMessagePropagation()" style="font-size: 11px;">📈 Message Propagation</button>
           </div>
         </div>
         <div id="modal-diff-box" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(251, 146, 60, 0.3); background: rgba(251, 146, 60, 0.04);">
@@ -890,6 +910,10 @@
         <div id="modal-similar-messages-container" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(167, 139, 250, 0.25); background: rgba(0, 0, 0, 0.2);">
           <h4 style="color: #a78bfa; margin-bottom: 8px;">Semantically Similar Messages (FAISS Embedding Matches)</h4>
           <div id="modal-similar-messages-list" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;"></div>
+        </div>
+        <div id="modal-propagation-container" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(96, 165, 250, 0.25); background: rgba(0, 0, 0, 0.25);">
+          <h4 style="color: #60a5fa; margin-bottom: 8px;">📈 Cross-Group Message Propagation Timeline</h4>
+          <div id="modal-propagation-list" style="display: flex; flex-direction: column; gap: 10px; font-size: 11px; position: relative; padding-left: 15px; border-left: 2px solid rgba(96, 165, 250, 0.2); margin-left: 5px;"></div>
         </div>
         <div id="modal-translation-box" class="modal-message-box" style="display: none; margin-top: 15px; border-color: rgba(167, 139, 250, 0.25); background: rgba(167, 139, 250, 0.04);">
           <h4 style="color: #c4b5fd;">English Translation</h4>

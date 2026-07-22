@@ -973,6 +973,145 @@ def api_case_ai_brief(case_id):
     return jsonify({"ai_brief": brief_md})
 
 
+@bp.route("/api/cases/<case_id>/export-stix", methods=["GET"])
+def api_case_export_stix(case_id):
+    db = _db()
+    details = db.get_case_details(case_id)
+    if not details:
+        return jsonify({"error": "Case not found"}), 404
+    from src.processing.reporting_service import generate_stix_bundle
+    bundle = generate_stix_bundle(details)
+    
+    import json
+    stix_json = json.dumps(bundle, indent=2)
+    
+    from io import BytesIO
+    buf = BytesIO(stix_json.encode('utf-8'))
+    return send_file(
+        buf,
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=f"case_{case_id}_stix21.json"
+    )
+
+
+@bp.route("/api/stats/trends", methods=["GET"])
+def api_stats_trends():
+    db = _db()
+    days = request.args.get("days", 30, type=int)
+    
+    from datetime import datetime, timedelta, timezone
+    from src.storage.database import get_db
+    try:
+        threshold = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with get_db(db.db_path) as conn:
+            rows = conn.execute('''
+                SELECT 
+                    substr(timestamp, 1, 10) as date_bucket,
+                    COALESCE(threat_category, 'Unclassified') as category,
+                    COUNT(*) as cnt
+                FROM messages
+                WHERE timestamp >= ? AND threat_category IS NOT NULL AND threat_category != 'Legitimate'
+                GROUP BY date_bucket, category
+                ORDER BY date_bucket ASC
+            ''', (threshold,)).fetchall()
+            
+            dates_set = sorted(list(set(r["date_bucket"] for r in rows)))
+            categories_set = sorted(list(set(r["category"] for r in rows)))
+            
+            datasets = {cat: [0] * len(dates_set) for cat in categories_set}
+            date_indices = {d: i for i, d in enumerate(dates_set)}
+            
+            for r in rows:
+                cat = r["category"]
+                d = r["date_bucket"]
+                cnt = r["cnt"]
+                datasets[cat][date_indices[d]] = cnt
+                
+            return jsonify({
+                "labels": dates_set,
+                "datasets": [{"label": cat, "data": datasets[cat]} for cat in categories_set]
+            })
+    except Exception as exc:
+        logger.error("api_stats_trends failed: %s", exc)
+        return jsonify({"labels": [], "datasets": []})
+
+
+@bp.route("/api/messages/<int:msg_id>/propagation", methods=["GET"])
+def api_message_propagation(msg_id):
+    db = _db()
+    msg = db.get_message_by_row_id(msg_id)
+    if not msg:
+        return jsonify({"error": "Message not found"}), 404
+        
+    campaign_id = msg.get("campaign_id")
+    fwd_id = msg.get("forward_from_id")
+    text = msg.get("text", "")
+    
+    from datetime import datetime
+    from src.storage.database import get_db
+    try:
+        with get_db(db.db_path) as conn:
+            if campaign_id:
+                rows = conn.execute('''
+                    SELECT id, group_name, sender_name, timestamp, text, risk_score
+                    FROM messages
+                    WHERE campaign_id = ?
+                    ORDER BY timestamp ASC
+                ''', (campaign_id,)).fetchall()
+            elif fwd_id:
+                rows = conn.execute('''
+                    SELECT id, group_name, sender_name, timestamp, text, risk_score
+                    FROM messages
+                    WHERE forward_from_id = ?
+                    ORDER BY timestamp ASC
+                ''', (fwd_id,)).fetchall()
+            else:
+                rows = conn.execute('''
+                    SELECT id, group_name, sender_name, timestamp, text, risk_score
+                    FROM messages
+                    WHERE hash = ? OR (text IS NOT NULL AND text = ?)
+                    ORDER BY timestamp ASC
+                ''', (msg.get("hash"), text)).fetchall()
+                
+            results = []
+            if not rows:
+                return jsonify([])
+                
+            first_ts = None
+            for r in rows:
+                ts_str = r["timestamp"]
+                delay_str = "Origin"
+                try:
+                    dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if first_ts is None:
+                        first_ts = dt
+                    else:
+                        diff = (dt - first_ts).total_seconds()
+                        if diff < 60:
+                            delay_str = f"+{int(diff)}s"
+                        elif diff < 3600:
+                            delay_str = f"+{int(diff // 60)}m"
+                        else:
+                            delay_str = f"+{int(diff // 3600)}h"
+                except Exception:
+                    pass
+                    
+                results.append({
+                    "id": r["id"],
+                    "group_name": r["group_name"],
+                    "sender_name": r["sender_name"],
+                    "timestamp": ts_str,
+                    "delay": delay_str,
+                    "risk_score": r["risk_score"]
+                })
+            return jsonify(results)
+    except Exception as exc:
+        logger.error("api_message_propagation failed: %s", exc)
+        return jsonify([])
+
+
+
 
 @bp.route("/api/watchlists", methods=["GET", "POST"])
 def api_watchlists():
