@@ -479,7 +479,45 @@ Format your response in GitHub-style Markdown with clear sections:
 3. Indicators of Compromise (IOCs) & Risk Assessment
 4. Recommended Countermeasures & Next Actions"""
 
-    # 1. Try Groq Cloud (Free Tier: GROQ_API_KEY)
+    # 1. Primary Option: OpenRouter API (Free Models: OPENROUTER_API_KEY)
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        models_to_try = [
+            os.environ.get("OPENROUTER_MODEL"),
+            "google/gemini-2.0-flash-lite-preview-02-05:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "deepseek/deepseek-r1:free",
+            "qwen/qwen-2.5-72b-instruct:free"
+        ]
+        # Filter out Nones while keeping order
+        models_to_try = [m for m in models_to_try if m]
+
+        for model_name in models_to_try:
+            try:
+                resp = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openrouter_key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://github.com/Visshu78/TeleWire",
+                        "X-Title": "TeleWire SOCMINT Intelligence Engine"
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3
+                    },
+                    timeout=15
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    if content and content.strip():
+                        return content
+            except Exception:
+                continue
+
+    # 2. Try Groq Cloud (Free Tier: GROQ_API_KEY)
     groq_key = os.environ.get("GROQ_API_KEY")
     if groq_key:
         try:
@@ -499,7 +537,7 @@ Format your response in GitHub-style Markdown with clear sections:
         except Exception:
             pass
 
-    # 2. Try Google Gemini API (Free Tier: GEMINI_API_KEY)
+    # 3. Try Google Gemini API (Free Tier: GEMINI_API_KEY)
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
         try:
@@ -517,26 +555,6 @@ Format your response in GitHub-style Markdown with clear sections:
                 data = resp.json()
                 text_out = data["candidates"][0]["content"]["parts"][0]["text"]
                 return text_out
-        except Exception:
-            pass
-
-    # 3. Try OpenRouter API (Free Models: OPENROUTER_API_KEY)
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-    if openrouter_key:
-        try:
-            resp = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
-                json={
-                    "model": os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-lite-preview-02-05:free"),
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3
-                },
-                timeout=12
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return data["choices"][0]["message"]["content"]
         except Exception:
             pass
 
