@@ -146,9 +146,10 @@ This script streams realistic target channels traffic, extracts test wallet addr
     *   *Threat Specialization Charting*: Renders a Chart.js doughnut visualization mapping the actor's threat category specialties (Scam, Hacking, Mule, etc.).
 *   **On-Demand OSINT Dossier**: Adds a `🕵️ Pull Dossier` action that fetches live profile metadata from Telegram's API (`GetFullUserRequest`) (displaying name, handle, status, bio/about, and phone numbers if visible), aggregates all historically shared UPI IDs, phone numbers, emails, and crypto wallets from the DB, and auto-generates external search engine pivot links.
 
-### 8. Case Builder Workspace
+### 8. Case Builder Workspace & AI Briefing Generator
 *   **Case Folders (`src/processing/reporting_service.py`):** Groups related findings (threat messages, wallets, and actor handles) into a single folder.
-*   **Executive Intelligence Brief:** Generates and compiles a downloadable, styled executive summary in Markdown containing case inventory metrics, risk evaluations, and formatted message logs.
+*   **AI Threat Brief Generator:** Generates structured executive intelligence briefs via OpenAI (`gpt-4o-mini`), local Ollama (`llama3`), or an automated rule-based analyst engine.
+*   **Executive Intelligence Brief:** Generates and compiles printable, styled executive summaries in HTML/Markdown containing case inventory metrics, risk evaluations, and formatted message logs.
 
 ### 9. Group Discovery Scanner & Direct Joins
 *   **Group Discovery Service (`src/ingestion/discovery_service.py`):** Runs an async background scan every 5 minutes.
@@ -156,11 +157,16 @@ This script streams realistic target channels traffic, extracts test wallet addr
   *   *Invite Link Extraction:* Pulls `t.me/+` invite links from ingested messages, using `CheckChatInviteRequest` to peek the group title and member count without joining.
 *   **Analyst Review Pipeline:** Places discovered targets in a pending queue for approval. Clicking `✅ Start Monitoring` performs an auto-join, while `✕ Dismiss` rejects the target. Monitored groups can be exited via the `🚪 Leave` action button.
 
-### 10. Heatmaps, Watchlists & Multi-Select Utilities
-*   **Temporal Heatmap:** Draws a 7x24 canvas grid mapping posting counts and threat densities over week days/hours. Provides instant interactive dashboard filters on click.
-*   **Multi-Select Dropdowns:** Replaces classic dropdown selectors with searchable, multi-value multi-select tags in Messages, Time Range, and Export tabs.
-*   **Saved Watchlists:** Creates filter state bookmark presets to quickly load preset search queries.
-*   **Live Translation:** Incorporates backend multi-language translation buttons inside the message detail drawer.
+### 10. Advanced Analytics, Semantic Search & Interactive Pivoting
+*   **FAISS Semantic Similarity Search:** Performs 384-dimensional vector similarity lookup (`all-MiniLM-L6-v2`) to retrieve top semantically related messages across all groups on demand.
+*   **IOC Cross-Pivot Sidebar:** Double-clicking any extracted entity (phone, wallet, UPI, email, handle) queries `message_entities` and opens an in-modal side pane listing all matching messages across monitored channels.
+*   **Stylometric Campaign Message Diff:** Highlights word-level insertions and deletions (`difflib.SequenceMatcher`) between a message and its campaign's base text.
+*   **Keyword Effectiveness Analytics:** Computes hit rates, high-risk matches ($\ge 70$), average threat scores, and rating categories (High Yield, Noisy, Moderate, Inactive) rendered in the Keywords dashboard.
+*   **Interactive Keyword Word Cloud:** Renders a canvas-based word cloud scaling text by hit frequency with click-to-filter search pivots.
+*   **Temporal & Density Heatmaps:** Renders 7x24 hour/day canvas heatmaps on the main dashboard and a togglable Leaflet density heatmap layer on Map Intel.
+*   **Multi-Actor Activity Chart Overlay:** Overlays posting activity histograms of two threat actors for temporal synchrony analysis.
+*   **Saved Watchlists & Multi-Select Utilities:** Bookmark filter presets and quick-load watchlists in Messages search.
+*   **Live Translation:** Multilingual message translation powered by `deep-translator` (GoogleTranslator).
 
 ---
 
@@ -220,6 +226,7 @@ TELEGRAM/
 │   └── dashboard.js              # Dashboard frontend routing and Cytoscape graphing logic
 │
 ├── tests/                        # Full test suite covering application modules
+│   ├── test_advanced_features.py # AI Brief, Translation, Semantic Search, & Pivot tests
 │   ├── test_entities.py          # Entity patterns and checksum verification tests
 │   ├── test_media.py             # OCR, QR, and pHash integration tests
 │   ├── test_multi_account.py     # PipelineManager and account management tests
